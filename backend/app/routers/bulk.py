@@ -151,6 +151,7 @@ def duplicate_candidates(
     reviewer_id: int,
     phase: str = "screening",
     status: str = Query("open", pattern="^(open|all)$"),
+    hide_lost: bool = False,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -161,7 +162,8 @@ def duplicate_candidates(
     this reviewer still has something to do: a copy they have not decided, or a
     group in which every copy was excluded only as "Duplicate"
     (``all_excluded_as_duplicate``), which loses the work entirely and wants a
-    second look. At screening that check also counts copies ReviQ flagged as
+    second look (``hide_lost`` leaves those out and reports how many in
+    ``hidden``). At screening that check also counts copies ReviQ flagged as
     duplicates, so a work whose original and flagged copy are both out is listed
     too (the flagged copy is shown but cannot be acted on).
     """
@@ -202,11 +204,18 @@ def duplicate_candidates(
             originals = {m["id"] for m in v["papers"] if m["dedup_status"] == "original"}
             if v["all_excluded_as_duplicate"] and not originals <= already_listed:
                 groups.append(v)
+    # Optionally leave out the groups whose every copy is already excluded as a
+    # duplicate, counting how many were left out.
+    hidden = 0
+    if hide_lost:
+        hidden = sum(g["all_excluded_as_duplicate"] for g in groups)
+        groups = [g for g in groups if not g["all_excluded_as_duplicate"]]
     groups.sort(key=lambda g: min(m["id"] for m in g["papers"]))
     return {"total": len(groups), "offset": offset, "limit": limit,
             # Totals over every group, not just this page.
             "copies": sum(len(g["papers"]) for g in groups),
             "lost": sum(g["all_excluded_as_duplicate"] for g in groups),
+            "hidden": hidden,
             "groups": groups[offset: offset + limit]}
 
 

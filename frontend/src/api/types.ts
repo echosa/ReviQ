@@ -476,6 +476,8 @@ export interface DuplicateCandidates {
   copies: number
   /** Groups whose every copy is excluded only as "Duplicate". */
   lost: number
+  /** Such groups left out because "hide" was asked for. */
+  hidden: number
   offset: number
   limit: number
   groups: DuplicateGroup[]

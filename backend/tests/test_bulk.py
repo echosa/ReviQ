@@ -395,3 +395,23 @@ def test_duplicate_candidates_report_totals_over_every_page(ctx):
     assert body["total"] == 2 and len(body["groups"]) == 1      # one page of two groups
     assert body["copies"] == 5                                   # 3 speech-act copies + the pair
     assert body["lost"] == 1                                     # the pair, both excluded as Duplicate
+
+
+def test_hide_lost_leaves_out_groups_with_every_copy_excluded_as_duplicate(ctx):
+    ctx.i.import_bib(ctx.pid, [
+        {"citekey": "b1", "title": "Indirect speech acts", "year": 2001, "doi": "10.1/b", "venue": "X"},
+        {"citekey": "b2", "title": "Indirect Speech Acts", "year": 1979, "venue": "Y"},
+    ], db_name="springerlink")
+    for k in ("a5", "a6"):
+        ctx.i.decide(ctx.pid, ctx.p[k]["id"], reviewer_id=ctx.r1["id"], decision="E",
+                     criterion_label="Duplicate")
+    get = lambda **kw: ctx.i.client.get(f"/api/projects/{ctx.pid}/duplicate-candidates",
+                                        params={"reviewer_id": ctx.r1["id"], **kw}).json()
+    shown = get()
+    assert shown["total"] == 2 and shown["lost"] == 1 and shown["hidden"] == 0
+    hidden = get(hide_lost=True)
+    assert hidden["total"] == 1 and hidden["lost"] == 0 and hidden["hidden"] == 1
+    assert hidden["copies"] == 2
+    assert not any(g["all_excluded_as_duplicate"] for g in hidden["groups"])
+    # also under status=all
+    assert get(status="all", hide_lost=True)["hidden"] == 1
