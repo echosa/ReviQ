@@ -187,6 +187,20 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               onChange={e => set('venueTerms', e.target.value)} />
           </FormField>
 
+          <FormField label="Title or abstract contains"
+            hint="Comma-separated. Matches the start of a word: “iron” finds “irony”, not “environment”">
+            <input className="input" aria-label="Text terms" value={form.textTerms}
+              placeholder="sarcas, irony, metaphor"
+              onChange={e => set('textTerms', e.target.value)} />
+          </FormField>
+
+          <FormField label="Title and abstract contain none of"
+            hint="Comma-separated, same word-start matching. Records with any of these are left out">
+            <input className="input" aria-label="Excluded text terms" value={form.textExcludes}
+              placeholder="sarcas, irony, humor"
+              onChange={e => set('textExcludes', e.target.value)} />
+          </FormField>
+
           <FormField label="Abstract">
             <select className="select" aria-label="Abstract" value={form.abstract}
               onChange={e => set('abstract', e.target.value as RuleForm['abstract'])}>

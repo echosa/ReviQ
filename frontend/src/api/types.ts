@@ -418,6 +418,8 @@ export interface BulkRules {
   year_min: number | null
   year_max: number | null
   venue_terms: string[]
+  text_terms: string[]
+  text_excludes: string[]
   abstract: 'missing' | 'present' | null
   sources: string[]
 }

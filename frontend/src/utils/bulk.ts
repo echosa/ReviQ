@@ -11,13 +11,15 @@ export interface RuleForm {
   yearMin: string
   yearMax: string
   venueTerms: string
+  textTerms: string
+  textExcludes: string
   abstract: '' | 'missing' | 'present'
   sources: string[]
 }
 
 export const EMPTY_FORM: RuleForm = {
   mode: 'all', languageCodes: '', languageBlank: false, titleTerms: '',
-  yearMin: '', yearMax: '', venueTerms: '', abstract: '', sources: [],
+  yearMin: '', yearMax: '', venueTerms: '', textTerms: '', textExcludes: '', abstract: '', sources: [],
 }
 
 /** "fr, DE ,, zh" -> ["fr", "DE", "zh"] */
@@ -39,6 +41,8 @@ export function buildRules(form: RuleForm): BulkRules {
     year_min: year(form.yearMin),
     year_max: year(form.yearMax),
     venue_terms: splitTerms(form.venueTerms),
+    text_terms: splitTerms(form.textTerms),
+    text_excludes: splitTerms(form.textExcludes),
     abstract: form.abstract || null,
     sources: form.sources,
   }
@@ -53,6 +57,8 @@ export function ruleCount(form: RuleForm): number {
     r.title_terms.length > 0,
     r.year_min !== null || r.year_max !== null,
     r.venue_terms.length > 0,
+    r.text_terms.length > 0,
+    r.text_excludes.length > 0,
     r.abstract !== null,
   ].filter(Boolean).length
 }

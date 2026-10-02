@@ -14,7 +14,8 @@ describe('buildRules', () => {
     const r = buildRules(EMPTY_FORM)
     expect(r).toMatchObject({
       mode: 'all', language_codes: [], language_blank: false, title_terms: [],
-      year_min: null, year_max: null, venue_terms: [], abstract: null, sources: [],
+      year_min: null, year_max: null, venue_terms: [], text_terms: [], text_excludes: [],
+      abstract: null, sources: [],
     })
   })
 
@@ -32,6 +33,7 @@ describe('ruleCount', () => {
     expect(ruleCount({ ...EMPTY_FORM, sources: ['snowballing:3'] })).toBe(0)
     expect(ruleCount({ ...EMPTY_FORM, yearMin: '2000', yearMax: '2020' })).toBe(1)
     expect(ruleCount({ ...EMPTY_FORM, languageBlank: true, titleTerms: 'editorial', abstract: 'present' })).toBe(3)
+    expect(ruleCount({ ...EMPTY_FORM, textTerms: 'irony', textExcludes: 'sentiment' })).toBe(2)
   })
 })
 

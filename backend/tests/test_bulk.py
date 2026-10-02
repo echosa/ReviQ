@@ -101,6 +101,39 @@ def test_all_versus_any(ctx):
     assert any_ == {p["a1"], p["a2"], p["a4"]}
 
 
+def _set(ctx, citekey, **fields):
+    paper = ctx.i.session.get(Paper, ctx.p[citekey]["id"])
+    for k, v in fields.items():
+        setattr(paper, k, v)
+    ctx.i.session.add(paper)
+    ctx.i.session.commit()
+
+
+def test_text_terms_search_title_and_abstract_from_the_start_of_a_word(ctx):
+    _set(ctx, "a2", abstract="We study verbal irony in tweets.")
+    _set(ctx, "a3", abstract="The environment of the study.")
+    got = _ids(_match(ctx, {"text_terms": ["iron"]}))
+    assert got == [ctx.p["a2"]["id"]]            # "irony" yes, "environment" no
+    assert _ids(_match(ctx, {"text_terms": ["EDITORIAL"]})) == sorted(
+        [ctx.p["a1"]["id"], ctx.p["a4"]["id"]])  # title match, any case
+
+
+def test_text_excludes_keeps_only_records_with_none_of_the_terms(ctx):
+    _set(ctx, "a2", abstract="irony everywhere")
+    got = set(_ids(_match(ctx, {"text_excludes": ["irony", "editorial"]})))
+    assert got.isdisjoint({ctx.p["a1"]["id"], ctx.p["a2"]["id"], ctx.p["a4"]["id"]})
+    assert ctx.p["a3"]["id"] in got
+
+
+def test_text_rules_combine_like_the_others(ctx):
+    _set(ctx, "a1", abstract="sentiment analysis of reviews")
+    _set(ctx, "a2", abstract="sentiment analysis of irony")
+    rules = {"text_terms": ["sentiment"], "text_excludes": ["irony"]}
+    all_ = _ids(_match(ctx, {**rules, "mode": "all"}))
+    assert ctx.p["a1"]["id"] in all_ and ctx.p["a2"]["id"] not in all_   # a2 mentions irony
+    assert ctx.p["a2"]["id"] in _ids(_match(ctx, {**rules, "mode": "any"}))
+
+
 def test_year_rule_ignores_records_without_a_year(ctx):
     paper = ctx.i.session.get(Paper, ctx.p["a3"]["id"])
     paper.year = None

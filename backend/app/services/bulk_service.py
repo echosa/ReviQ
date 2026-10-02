@@ -17,6 +17,7 @@ At the full-text phase the candidate set is the records screening included, the
 same set the Eligibility page works on.
 """
 import math
+import re
 from collections import Counter, defaultdict
 from typing import Callable, Optional
 
@@ -108,6 +109,10 @@ class MatchRules(BaseModel):
     year_min: Optional[int] = None
     year_max: Optional[int] = None    # "year outside [min, max]"; no year never matches
     venue_terms: list[str] = Field(default_factory=list)
+    # Title *or* abstract. Matched at the start of a word, so "iron" finds
+    # "irony" but not "environment", and a stem like "sarcas" finds "sarcasm".
+    text_terms: list[str] = Field(default_factory=list)      # contains any of these
+    text_excludes: list[str] = Field(default_factory=list)   # contains none of these
     abstract: Optional[str] = None                      # missing | present
     sources: list[str] = Field(default_factory=list)
 
@@ -128,11 +133,28 @@ class MatchRules(BaseModel):
         venues = [t.strip().lower() for t in self.venue_terms if t.strip()]
         if venues:
             rules.append(lambda p: any(t in (p.venue or "").lower() for t in venues))
+        wanted = _word_start(self.text_terms)
+        if wanted:
+            rules.append(lambda p: bool(wanted.search(_text(p))))
+        unwanted = _word_start(self.text_excludes)
+        if unwanted:
+            rules.append(lambda p: not unwanted.search(_text(p)))
         if self.abstract == "missing":
             rules.append(lambda p: not (p.abstract or "").strip())
         elif self.abstract == "present":
             rules.append(lambda p: bool((p.abstract or "").strip()))
         return rules
+
+
+def _text(p: Paper) -> str:
+    return f"{p.title or ''} {p.abstract or ''}"
+
+
+def _word_start(terms: list[str]) -> Optional["re.Pattern[str]"]:
+    cleaned = [t.strip() for t in terms if t.strip()]
+    if not cleaned:
+        return None
+    return re.compile("|".join(rf"(?<!\w){re.escape(t)}" for t in cleaned), re.IGNORECASE)
 
 
 def match_papers(papers: list[Paper], rules: MatchRules) -> list[Paper]:
