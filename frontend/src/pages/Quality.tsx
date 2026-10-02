@@ -6,7 +6,7 @@ import { getQASummary, upsertQAScore, getReviewers } from '../api/client'
 import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField, EmptyState,
 } from '../components/ui'
-import AbstractToggle from '../components/AbstractToggle'
+import AbstractToggle, { AbstractList } from '../components/AbstractToggle'
 import type { QAPaperResult, QAScoreEntry } from '../api/types'
 import { formatAuthors } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -91,16 +91,18 @@ function ScoringView({ pid }: { pid: number }) {
         <StatCell label="Pending" value={summary.papers.length - scored} color="uncertain" />
       </StatBar>
 
-      <div className="paper-list">
-        {summary.papers.map(paper => (
-          <PaperQARow
-            key={paper.paper_id}
-            paper={paper}
-            criteria={summary.criteria}
-            onScore={() => setSelectedPaper(paper)}
-          />
-        ))}
-      </div>
+      <AbstractList>
+        <div className="paper-list">
+          {summary.papers.map(paper => (
+            <PaperQARow
+              key={paper.paper_id}
+              paper={paper}
+              criteria={summary.criteria}
+              onScore={() => setSelectedPaper(paper)}
+            />
+          ))}
+        </div>
+      </AbstractList>
 
       {selectedPaper && (
         <QAScoringModal

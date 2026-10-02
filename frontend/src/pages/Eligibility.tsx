@@ -16,7 +16,7 @@ import {
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
 import { BulkView, DuplicatesView } from '../components/BulkTools'
-import AbstractToggle from '../components/AbstractToggle'
+import AbstractToggle, { AbstractList } from '../components/AbstractToggle'
 import type { Paper, ConflictLog } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
@@ -203,16 +203,18 @@ function PapersView({ pid }: { pid: number }) {
       ) : filteredPapers.length === 0 ? (
         <EmptyState icon="—" message={`No ${REPORTS.many} match the current filter.`} />
       ) : (
-        <div className="paper-list">
-          {filteredPapers.map(paper => (
-            <PaperRow
-              key={paper.id}
-              paper={paper}
-              reviewerId={activeReviewerId}
-              onDecide={() => setSelectedPaper(paper)}
-            />
-          ))}
-        </div>
+        <AbstractList>
+          <div className="paper-list">
+            {filteredPapers.map(paper => (
+              <PaperRow
+                key={paper.id}
+                paper={paper}
+                reviewerId={activeReviewerId}
+                onDecide={() => setSelectedPaper(paper)}
+              />
+            ))}
+          </div>
+        </AbstractList>
       )}
 
       {selectedPaper && (

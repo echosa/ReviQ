@@ -15,7 +15,7 @@ import {
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
 import GreyRecordPanel from '../components/GreyRecordPanel'
-import AbstractToggle from '../components/AbstractToggle'
+import AbstractToggle, { AbstractList } from '../components/AbstractToggle'
 import { isGrey } from '../components/streams'
 import { BulkView, DuplicatesView } from '../components/BulkTools'
 import type { Paper, ConflictLog } from '../api/types'
@@ -165,16 +165,18 @@ function PapersView({ pid }: { pid: number }) {
         <EmptyState icon="—"
           message={`No ${RECORDS.many} match the current filter. Import BibTeX files first.`} />
       ) : (
-        <div className="paper-list">
-          {filteredPapers.map(paper => (
-            <PaperRow
-              key={paper.id}
-              paper={paper}
-              reviewerId={activeReviewerId}
-              onDecide={() => setSelectedPaper(paper)}
-            />
-          ))}
-        </div>
+        <AbstractList>
+          <div className="paper-list">
+            {filteredPapers.map(paper => (
+              <PaperRow
+                key={paper.id}
+                paper={paper}
+                reviewerId={activeReviewerId}
+                onDecide={() => setSelectedPaper(paper)}
+              />
+            ))}
+          </div>
+        </AbstractList>
       )}
 
       {/* Decision modal */}

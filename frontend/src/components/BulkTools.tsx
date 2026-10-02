@@ -20,7 +20,7 @@ import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '.
 import { buildHighlighters, type Highlighters } from '../utils/highlight'
 import Highlight, { MARK_STYLE } from './Highlight'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
-import AbstractToggle from './AbstractToggle'
+import AbstractToggle, { AbstractList } from './AbstractToggle'
 import { Card, CardHeader, ConfirmDialog, DecisionBadge, EmptyState, FormField } from './ui'
 
 export type BulkPhase = 'screening' | 'full-text'
@@ -308,6 +308,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
             <button className="btn-ghost btn-sm" onClick={() => setChecked(new Set())}>Uncheck all</button>
           </div>
 
+          <AbstractList>
           <div className="paper-list">
             {result.papers.map(p => (
               <label key={p.id} className="paper-row gap-3">
@@ -321,6 +322,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               </label>
             ))}
           </div>
+          </AbstractList>
         </Card>
       )}
 
@@ -449,6 +451,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
           ? `No possible duplicates need a decision.` : `No possible duplicates found.`} />
       )}
 
+      <AbstractList>
       {groups.map((g, gi) => (
         <Card key={g.papers.map(p => p.id).join('-')}>
           <div className="flex items-center justify-between mb-3">
@@ -505,6 +508,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
           </div>
         </Card>
       ))}
+      </AbstractList>
 
       {data && data.total > PAGE && (
         <div className="flex items-center gap-3 text-xs text-ink-muted">

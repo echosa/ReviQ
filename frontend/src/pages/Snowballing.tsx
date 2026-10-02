@@ -17,7 +17,7 @@ import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField,
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
-import AbstractToggle from '../components/AbstractToggle'
+import AbstractToggle, { AbstractList } from '../components/AbstractToggle'
 import type { SnowballingIteration, Paper } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -553,6 +553,7 @@ function IterationPapersView({ pid, iterationNumber }: { pid: number; iterationN
         ))}
       </div>
 
+      <AbstractList>
       <div className="space-y-2">
         {filteredPapers.map(paper => {
           const myDec = ownDecision(paper, activeReviewerId)
@@ -585,6 +586,7 @@ function IterationPapersView({ pid, iterationNumber }: { pid: number; iterationN
           )
         })}
       </div>
+      </AbstractList>
 
       {selectedPaper && (
         <SnowDecisionModal
