@@ -17,6 +17,8 @@ import type {
   BulkMatchResult, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
 } from '../api/types'
 import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '../utils/bulk'
+import { buildHighlighters, type Highlighters } from '../utils/highlight'
+import Highlight, { MARK_STYLE } from './Highlight'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
 import AbstractToggle from './AbstractToggle'
 import { Card, CardHeader, ConfirmDialog, DecisionBadge, EmptyState, FormField } from './ui'
@@ -70,8 +72,20 @@ function Errors({ messages }: { messages: string[] }) {
   )
 }
 
-const meta = (p: { year?: number | null; venue?: string | null; source: string; language?: string | null }) =>
-  [p.year, p.venue, p.source, p.language].filter(Boolean).join(' · ')
+type MetaPaper = { year?: number | null; venue?: string | null; source: string; language?: string | null }
+
+/** Year · venue · source · language, with whatever matched a rule marked. */
+function Meta({ p, hl }: { p: MetaPaper; hl?: Highlighters | null }) {
+  const yearHit = !!hl?.years && p.year != null && (p.year < hl.years.min || p.year > hl.years.max)
+  const langHit = !!p.language && !!hl?.languages.has(p.language.toLowerCase())
+  const mark = (text: string | number) => <mark style={MARK_STYLE} className="rounded-sm px-0.5">{text}</mark>
+  const parts: JSX.Element[] = []
+  if (p.year != null) parts.push(<span key="y">{yearHit ? mark(p.year) : p.year}</span>)
+  if (p.venue) parts.push(<span key="v"><Highlight text={p.venue} pattern={hl?.venue ?? null} /></span>)
+  parts.push(<span key="s">{p.source}</span>)
+  if (p.language) parts.push(<span key="l">{langHit ? mark(p.language) : p.language}</span>)
+  return <>{parts.flatMap((el, i) => (i === 0 ? [el] : [<span key={`d${i}`}> · </span>, el]))}</>
+}
 
 // ── Bulk actions ──────────────────────────────────────────────────────────────
 
@@ -83,6 +97,9 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
 
   const [form, setForm] = useState<RuleForm>(EMPTY_FORM)
   const [result, setResult] = useState<BulkMatchResult | null>(null)
+  // Highlights follow the rules the shown preview was made with, not the form
+  // as it is edited afterwards.
+  const [shown, setShown] = useState<Highlighters | null>(null)
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [decision, setDecision] = useState<'I' | 'E'>('E')
   const [criterion, setCriterion] = useState('')
@@ -100,10 +117,14 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const set = <K extends keyof RuleForm>(k: K, v: RuleForm[K]) => setForm(f => ({ ...f, [k]: v }))
 
   const preview = useMutation({
-    mutationFn: () => matchUndecided(pid, {
-      reviewer_id: reviewerId!, phase, rules: buildRules(form), limit: 200,
-    }),
-    onSuccess: r => { setResult(r); setChecked(new Set(r.papers.map(p => p.id))); setErrors([]) },
+    mutationFn: () => {
+      const rules = buildRules(form)
+      return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, limit: 200 })
+        .then(r => ({ r, hl: buildHighlighters(rules) }))
+    },
+    onSuccess: ({ r, hl }) => {
+      setResult(r); setShown(hl); setChecked(new Set(r.papers.map(p => p.id))); setErrors([])
+    },
     onError: e => { setResult(null); setErrors(apiErrors(e)) },
   })
 
@@ -293,9 +314,9 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                 <input type="checkbox" className="mt-1" checked={checked.has(p.id)}
                   onChange={() => toggle(p.id)} aria-label={`Include ${p.title} in this action`} />
                 <div className="min-w-0">
-                  <div className="text-sm text-ink">{p.title}</div>
-                  <div className="text-xs text-ink-muted">{meta(p)}</div>
-                  <AbstractToggle abstract={p.abstract} />
+                  <div className="text-sm text-ink"><Highlight text={p.title} pattern={shown?.title ?? null} /></div>
+                  <div className="text-xs text-ink-muted"><Meta p={p} hl={shown} /></div>
+                  <AbstractToggle abstract={p.abstract} highlight={shown?.abstract ?? null} />
                 </div>
               </label>
             ))}
@@ -455,7 +476,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-ink">{p.title}</div>
                   <div className="text-xs text-ink-muted">
-                    {meta(p)}{p.doi ? ` · ${p.doi}` : ' · no DOI'} · ID {p.id}
+                    <Meta p={p} />{p.doi ? ` · ${p.doi}` : ' · no DOI'} · ID {p.id}
                   </div>
                   <AbstractToggle abstract={p.abstract} />
                   {p.decision && (

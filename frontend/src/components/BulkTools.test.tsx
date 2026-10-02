@@ -60,6 +60,42 @@ describe('bulk actions', () => {
     await screen.findByText(/of 50 undecided records match/)
   }
 
+  it('marks what made a record match, in its title and its abstract', async () => {
+    api.matchUndecided.mockResolvedValue({
+      candidates: 5, matched: 1, offset: 0, limit: 200,
+      papers: [paper(1, { title: 'Editorial: the year in review', venue: 'ACM Workshop', language: 'fr',
+        abstract: 'We study verbal irony in tweets.' })],
+    })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'editorial' } })
+    fireEvent.change(screen.getByLabelText('Venue terms'), { target: { value: 'workshop' } })
+    fireEvent.change(screen.getByLabelText('Language codes'), { target: { value: 'fr' } })
+    fireEvent.change(screen.getByLabelText('Text terms'), { target: { value: 'iron' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 5 undecided records match/)
+
+    const marked = () => [...document.querySelectorAll('mark')].map(m => m.textContent)
+    expect(marked()).toEqual(['Editorial', 'Workshop', 'fr'])
+    // The abstract is closed but says it holds a match; opening it marks the term.
+    expect(screen.getByText(/contains a match/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show abstract' }))
+    expect(marked()).toEqual(['Editorial', 'Workshop', 'fr', 'iron'])
+  })
+
+  it('keeps the highlights of the preview shown while the form is edited', async () => {
+    api.matchUndecided.mockResolvedValue({
+      candidates: 5, matched: 1, offset: 0, limit: 200,
+      papers: [paper(1, { title: 'Editorial and erratum' })],
+    })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    const terms = await screen.findByLabelText('Title terms')
+    fireEvent.change(terms, { target: { value: 'editorial' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 5 undecided records match/)
+    fireEvent.change(terms, { target: { value: 'erratum' } })       // edited, not previewed
+    expect([...document.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['Editorial'])
+  })
+
   it('cannot preview until a rule is switched on', async () => {
     renderIn(<BulkView pid={1} phase="screening" />)
     const preview = await screen.findByRole('button', { name: 'Preview matches' })

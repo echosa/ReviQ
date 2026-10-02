@@ -5,8 +5,14 @@
  * clicks here stop at the toggle instead of reaching the row.
  */
 import { useState } from 'react'
+import { hasMatch } from '../utils/highlight'
+import Highlight from './Highlight'
 
-export default function AbstractToggle({ abstract }: { abstract?: string | null }) {
+export default function AbstractToggle({ abstract, highlight = null }: {
+  abstract?: string | null
+  /** Terms to mark inside the abstract; the toggle says when it holds one. */
+  highlight?: RegExp | null
+}) {
   const [open, setOpen] = useState(false)
   const text = abstract?.trim()
 
@@ -21,8 +27,13 @@ export default function AbstractToggle({ abstract }: { abstract?: string | null 
         onClick={() => setOpen(o => !o)}>
         {open ? 'Hide abstract' : 'Show abstract'}
       </button>
+      {!open && hasMatch(text, highlight) && (
+        <span className="text-2xs text-ink-muted ml-2">· contains a match</span>
+      )}
       {open && (
-        <p className="text-xs text-ink-light leading-relaxed mt-1 max-h-48 overflow-y-auto">{text}</p>
+        <p className="text-xs text-ink-light leading-relaxed mt-1 max-h-48 overflow-y-auto">
+          <Highlight text={text} pattern={highlight} />
+        </p>
       )}
     </div>
   )
