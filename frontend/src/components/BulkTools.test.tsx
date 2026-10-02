@@ -220,6 +220,20 @@ describe('bulk actions', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The server said no.')
   })
 
+  it('says what a preview found right beside the button, including when nothing matched', async () => {
+    api.matchUndecided.mockResolvedValueOnce({ candidates: 1511, matched: 0, offset: 0, limit: 200, papers: [] })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'zzzqqq' } })
+    expect(screen.queryByTestId('preview-summary')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    expect(await screen.findByTestId('preview-summary'))
+      .toHaveTextContent('Nothing matched the rules (1,511 undecided records searched).')
+
+    api.matchUndecided.mockResolvedValueOnce({ candidates: 1511, matched: 2, offset: 0, limit: 200, papers: [paper(1), paper(2)] })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await waitFor(() => expect(screen.getByTestId('preview-summary')).toHaveTextContent('2 matched — see below.'))
+  })
+
   it('says so when nothing matches', async () => {
     api.matchUndecided.mockResolvedValue({ candidates: 12, matched: 0, offset: 0, limit: 200, papers: [] })
     renderIn(<BulkView pid={1} phase="full-text" />)

@@ -7,7 +7,7 @@
  * can never lose every copy.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../App'
 import {
   apiErrors, applyBulkDecisions, getDuplicateCandidates, getExclusionCriteria,
@@ -111,6 +111,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const [result, setResult] = useState<BulkMatchResult | null>(null)
   const [statuses, setStatuses] = useState<Set<BulkStatus>>(new Set<BulkStatus>(['undecided']))
   const [searched, setSearched] = useState<BulkStatus[]>(['undecided'])   // what the shown preview searched
+  const resultsRef = useRef<HTMLDivElement>(null)
   // Highlights follow the rules the shown preview was made with, not the form
   // as it is edited afterwards.
   const [shown, setShown] = useState<Highlighters | null>(null)
@@ -129,6 +130,12 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
     queryKey: ['papers', pid, phase], queryFn: () => getPapers(pid, { phase }),
   })
   const sources = [...new Set(papers.filter(p => p.dedup_status === 'original').map(p => p.source))].sort()
+
+  // The results sit below a tall form: bring them into view when a preview lands,
+  // so that an outcome (even "nothing matched") is not out of sight.
+  useEffect(() => {
+    if (result) resultsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+  }, [result])
 
   const set = <K extends keyof RuleForm>(k: K, v: RuleForm[K]) => setForm(f => ({ ...f, [k]: v }))
 
@@ -291,12 +298,21 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
           </button>
           {rules === 0 && <span className="text-xs text-ink-muted">Turn on at least one rule.</span>}
           {rules > 0 && statuses.size === 0 && <span className="text-xs text-ink-muted">Choose which records to search.</span>}
+          {result && !preview.isPending && (
+            <span aria-live="polite" data-testid="preview-summary"
+              className={`text-xs ${result.matched === 0 ? 'text-exclude font-semibold' : 'text-ink-muted'}`}>
+              {result.matched === 0
+                ? `Nothing matched the rules (${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${result.candidates === 1 ? noun.one : noun.many} searched).`
+                : `${result.matched.toLocaleString()} matched — see below.`}
+            </span>
+          )}
         </div>
       </Card>
 
       {done && <p role="status" className="text-sm text-include">{done}</p>}
       <Errors messages={errors} />
 
+      <div ref={resultsRef}>
       {result && result.matched === 0 && (
         <EmptyState icon="—" message={`No ${noun.many} match. ${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${result.candidates === 1 ? noun.one : noun.many} were searched.`} />
       )}
@@ -369,6 +385,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
           </AbstractList>
         </Card>
       )}
+      </div>
 
       {confirming && (
         <ConfirmDialog
