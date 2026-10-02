@@ -6,6 +6,8 @@ import type {
   Paper, KappaResult, ImportStats, ConflictLog, ExportStats,
   SnowballingIteration, QASummary, ExtractionField, ExtractionSummary,
   GreyRecord, GreyImportResult, Retrieval,
+  BulkRules, BulkMatchResult, BulkDecisionItem,
+  DuplicateCandidates, DuplicateResolution, DuplicateResolveResult,
 } from './types'
 
 const api = axios.create({ baseURL: '/api' })
@@ -335,3 +337,34 @@ export const importGreyPackage = (pid: number, file: File) => {
     { headers: { 'Content-Type': 'multipart/form-data' } },
   ).then(r => r.data)
 }
+
+// ── Bulk decisions and duplicate review ───────────────────────────────────────
+
+/** The messages behind a refused bulk request, which the API returns as
+ *  `{detail: {errors: [...]}}`; falls back to whatever message there is. */
+export function apiErrors(e: unknown): string[] {
+  const detail = (e as any)?.response?.data?.detail
+  if (Array.isArray(detail?.errors)) return detail.errors
+  if (typeof detail === 'string') return [detail]
+  return [(e as Error)?.message ?? 'Request failed']
+}
+
+export const matchUndecided = (
+  pid: number,
+  body: { reviewer_id: number; phase: string; rules: BulkRules; limit?: number; offset?: number },
+) => api.post<BulkMatchResult>(`/projects/${pid}/bulk/match`, body).then(r => r.data)
+
+export const applyBulkDecisions = (
+  pid: number,
+  body: { reviewer_id: number; phase: string; decisions: BulkDecisionItem[] },
+) => api.post<{ applied: number }>(`/projects/${pid}/decisions/bulk`, body).then(r => r.data)
+
+export const getDuplicateCandidates = (
+  pid: number,
+  params: { reviewer_id: number; phase: string; status?: 'open' | 'all'; limit?: number; offset?: number },
+) => api.get<DuplicateCandidates>(`/projects/${pid}/duplicate-candidates`, { params }).then(r => r.data)
+
+export const resolveDuplicates = (
+  pid: number,
+  body: { reviewer_id: number; phase: string; criterion_label: string; groups: DuplicateResolution[] },
+) => api.post<DuplicateResolveResult>(`/projects/${pid}/duplicates/resolve`, body).then(r => r.data)

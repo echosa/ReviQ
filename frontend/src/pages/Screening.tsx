@@ -16,11 +16,12 @@ import {
 } from '../components/ui'
 import GreyRecordPanel from '../components/GreyRecordPanel'
 import { isGrey } from '../components/streams'
+import { BulkView, DuplicatesView } from '../components/BulkTools'
 import type { Paper, ConflictLog } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
 
-type ScreeningView = 'papers' | 'conflicts' | 'kappa'
+type ScreeningView = 'papers' | 'bulk' | 'duplicates' | 'conflicts' | 'kappa'
 
 /** Screening reads titles and abstracts: what it decides on are records. */
 const RECORDS = PHASE_NOUN.screening
@@ -43,19 +44,21 @@ export default function Screening() {
       <div className="flex gap-0 border-b border-rule">
         {/* The tab is keyed on 'papers' — the identifier the code has always
             used — and labelled with what a reader is looking at. */}
-        {(['papers', 'conflicts', 'kappa'] as ScreeningView[]).map(v => (
+        {(['papers', 'bulk', 'duplicates', 'conflicts', 'kappa'] as ScreeningView[]).map(v => (
           <button key={v} onClick={() => setView(v)}
             className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-label transition-colors relative capitalize ${
               view === v
                 ? 'text-info after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-info'
                 : 'text-ink-muted hover:text-ink'
             }`}>
-            {v === 'papers' ? RECORDS.many : v}
+            {v === 'papers' ? RECORDS.many : v === 'bulk' ? 'Bulk actions' : v}
           </button>
         ))}
       </div>
 
       {view === 'papers'    && <PapersView pid={projectId} />}
+      {view === 'bulk'      && <BulkView pid={projectId} phase="screening" />}
+      {view === 'duplicates' && <DuplicatesView pid={projectId} phase="screening" />}
       {view === 'conflicts' && <ConflictsView pid={projectId} />}
       {view === 'kappa'     && <KappaView pid={projectId} />}
     </div>

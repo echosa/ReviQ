@@ -31,8 +31,8 @@ stream, counted and reported separately throughout:
 |---|-------|-------------|
 | 1 | **Setup** | Project metadata, up to 5 reviewers, inclusion/exclusion criteria, QA scoring schema, taxonomy categories, database search strings |
 | 2 | **Import** | BibTeX upload per database, cross-database deduplication (DOI + normalised title/venue), duplicate override log; in a multivocal review, grey literature imported from a retrieval this project made, carrying its provenance |
-| 3 | **Screening** | Title/abstract decisions (Include / Exclude / Uncertain), per-criterion rationale, automatic conflict detection, Cohen's κ with 95% CI and PABAK |
-| 4 | **Eligibility** | Full-text assessment with the same decision workflow, full-text URL tracking |
+| 3 | **Screening** | Title/abstract decisions (Include / Exclude / Uncertain), per-criterion rationale, bulk decisions by rule, review of possible duplicates, automatic conflict detection, Cohen's κ with 95% CI and PABAK |
+| 4 | **Eligibility** | Full-text assessment with the same decision workflow (bulk actions and duplicate review included), full-text URL tracking |
 | 5 | **Snowballing** | Iteration-based forward/backward citation chasing (Wohlin 2014), saturation tracking |
 | 6 | **Quality Assessment** | Scoring against project-defined QA criteria (0 / 0.5 / 1), automatic quality-level classification (high/medium/low) |
 | 7 | **Data Extraction** | Configurable extraction schema (text, number, boolean, dropdown), per-paper data entry, taxonomy integration |
@@ -43,6 +43,29 @@ screening titles and abstracts, **reports** while assessing full texts,
 **studies** once a review has included them. The database, the API and the
 replication package keep saying `paper`, so existing exports and packages stay
 readable.
+
+### Bulk actions and duplicate review
+
+Screening and Eligibility each have a **Bulk actions** and a **Duplicates** tab.
+
+**Bulk actions** finds the records you have not decided yet that match rules
+(language code, title keyword, year outside a range, venue keyword, abstract
+missing or present, optionally limited to some imports), either all of the rules
+or any of them. You see the matches first; nothing is recorded until you choose
+a decision and a criterion and confirm. Only your own undecided records are
+offered, so a bulk action never overwrites a decision, and a request is applied
+whole or not at all.
+
+**Duplicates** lists records that look like the same work but were not caught at
+import, typically a copy with no DOI whose title carries a venue prefix. You
+choose the copy that stays; the others are excluded as duplicates, with the kept
+copy named in the rationale. A group cannot lose every copy, and the tab also
+lists works where every copy is already excluded as a duplicate (counting copies
+import flagged), since those have left the review. Groups are only candidates:
+editions and chapters can share a title.
+
+Both only ever offer original records, never ones already flagged as duplicates,
+and at full-text only records screening included.
 
 Collaboration is file-based: reviewers export decisions as JSON, and a whole
 grey corpus travels the same way — shared however you like, imported on the
@@ -610,6 +633,7 @@ backend/app/
     import_.py         # BibTeX and grey import, deduplication, retrieval listing
     papers.py          # Paper listing with decision enrichment
     decisions.py       # Reviewer decisions, conflict detection/resolution
+    bulk.py            # Bulk decisions by rule, duplicate candidates and resolution
     kappa.py           # Cohen's κ, PABAK, confidence intervals
     export.py          # BibTeX export, PRISMA counts, search metrics
     qa.py              # Quality assessment scores and summaries
@@ -620,6 +644,7 @@ backend/app/
   services/
     bibtex_service.py  # BibTeX parsing, deduplication, language detection
     decision_service.py# Decision state, conflicts
+    bulk_service.py    # Rule matching, duplicate candidate groups
     grey_service.py    # A retrieval package mapped into the grey stream
     kappa_service.py   # Cohen's κ, PABAK, Landis-Koch interpretation
     paper_import.py    # The one import loop both BibTeX paths use
@@ -645,6 +670,7 @@ frontend/src/
     streams.ts              # Mirror of services/streams.py
     GreyImportPanel.tsx     # Retrieval listing and grey import (multivocal only)
     GreyRecordPanel.tsx     # Provenance, archived text and figures for one source
+    BulkTools.tsx           # Bulk actions and duplicate review tabs (Screening, Eligibility)
     charts/                 # Recharts panels, palette, export settings
     layout/                 # NavBar, Sidebar
   utils/
@@ -654,6 +680,7 @@ frontend/src/
     sourceLabel.ts          # What a source key is called on screen
     retrievalReasons.ts     # Why a source could not be read, in a reader's words
     charts.ts               # Chart aggregation, mirrored in the PDF report
+    bulk.ts                 # Bulk-action form to API rules; which criteria a phase offers
   pages/
     Overview.tsx            # Project list, create (with review type), import, delete
     Settings.tsx            # Phase 1 — project configuration and protocol

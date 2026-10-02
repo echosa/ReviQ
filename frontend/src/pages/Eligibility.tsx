@@ -15,11 +15,12 @@ import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField,
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
+import { BulkView, DuplicatesView } from '../components/BulkTools'
 import type { Paper, ConflictLog } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
 
-type EligView = 'papers' | 'conflicts' | 'kappa'
+type EligView = 'papers' | 'bulk' | 'duplicates' | 'conflicts' | 'kappa'
 
 /** Eligibility assesses the documents themselves: reports, not records. The
  *  set it starts from is still what screening included — records. */
@@ -42,19 +43,21 @@ export default function Eligibility() {
       </div>
 
       <div className="flex gap-0 border-b border-rule">
-        {(['papers', 'conflicts', 'kappa'] as EligView[]).map(v => (
+        {(['papers', 'bulk', 'duplicates', 'conflicts', 'kappa'] as EligView[]).map(v => (
           <button key={v} onClick={() => setView(v)}
             className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-label transition-colors relative capitalize ${
               view === v
                 ? 'text-info after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-info'
                 : 'text-ink-muted hover:text-ink'
             }`}>
-            {v === 'papers' ? REPORTS.many : v}
+            {v === 'papers' ? REPORTS.many : v === 'bulk' ? 'Bulk actions' : v}
           </button>
         ))}
       </div>
 
       {view === 'papers'    && <PapersView pid={projectId} />}
+      {view === 'bulk'      && <BulkView pid={projectId} phase="full-text" />}
+      {view === 'duplicates' && <DuplicatesView pid={projectId} phase="full-text" />}
       {view === 'conflicts' && <ConflictsView pid={projectId} />}
       {view === 'kappa'     && <KappaView pid={projectId} />}
     </div>

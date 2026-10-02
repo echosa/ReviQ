@@ -407,3 +407,77 @@ export interface GreyRecord {
   full_text: GreyFullText | null
   figures: GreyFigure[]
 }
+
+// ── Bulk decisions and duplicate review ───────────────────────────────────────
+
+export interface BulkRules {
+  mode: 'all' | 'any'
+  language_codes: string[]
+  language_blank: boolean
+  title_terms: string[]
+  year_min: number | null
+  year_max: number | null
+  venue_terms: string[]
+  abstract: 'missing' | 'present' | null
+  sources: string[]
+}
+
+export interface BulkPaper {
+  id: number
+  citekey: string
+  title: string
+  authors?: string | null
+  year?: number | null
+  venue?: string | null
+  source: string
+  doi?: string | null
+  language?: string | null
+  abstract?: string | null
+  /** "original", or anything else for a record ReviQ flagged as a duplicate. */
+  dedup_status?: string
+}
+
+export interface BulkMatchResult {
+  candidates: number
+  matched: number
+  offset: number
+  limit: number
+  papers: BulkPaper[]
+}
+
+export interface BulkDecisionItem {
+  paper_id: number
+  decision: 'I' | 'E' | 'U'
+  criterion_label?: string
+  rationale?: string
+}
+
+export interface DuplicateMember extends BulkPaper {
+  decision: string | null
+  criterion_label: string | null
+}
+
+export interface DuplicateGroup {
+  papers: DuplicateMember[]
+  reasons: string[]
+  score: number
+  /** Every copy was excluded only as "Duplicate": nothing of the work is left. */
+  all_excluded_as_duplicate: boolean
+}
+
+export interface DuplicateCandidates {
+  total: number
+  offset: number
+  limit: number
+  groups: DuplicateGroup[]
+}
+
+export interface DuplicateResolution {
+  keep: number[]
+  exclude: number[]
+}
+
+export interface DuplicateResolveResult {
+  applied: number
+  changes: { paper_id: number; previous: string | null; previous_criterion: string | null }[]
+}

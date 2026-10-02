@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import create_db_and_tables, ensure_retrieval_schema, run_migrations
-from app.routers import projects, papers, import_, decisions, kappa, export, qa, snowballing, extraction, replication, report
+from app.routers import projects, papers, import_, decisions, bulk, kappa, export, qa, snowballing, extraction, replication, report
 
 
 @asynccontextmanager
@@ -57,6 +57,7 @@ app.include_router(projects.router, prefix="/api")
 app.include_router(papers.router, prefix="/api")
 app.include_router(import_.router, prefix="/api")
 app.include_router(decisions.router, prefix="/api")
+app.include_router(bulk.router, prefix="/api")
 app.include_router(kappa.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(qa.router, prefix="/api")

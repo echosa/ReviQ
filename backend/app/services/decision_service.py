@@ -25,6 +25,32 @@ from sqlmodel import Session, select
 from app.models import ConflictLog, FinalDecision, ReviewerDecision
 
 
+def record_reviewer_decision(
+    session: Session, *, project_id: int, paper_id: int, reviewer_id: int,
+    phase: str, decision: str, criterion_label: str | None, rationale: str | None,
+) -> None:
+    """Insert or update one reviewer's decision. The caller commits, then runs
+    ``sync_decision_state`` for the paper."""
+    existing = session.exec(
+        select(ReviewerDecision)
+        .where(ReviewerDecision.paper_id == paper_id)
+        .where(ReviewerDecision.reviewer_id == reviewer_id)
+        .where(ReviewerDecision.phase == phase)
+    ).first()
+    if existing:
+        existing.decision = decision
+        existing.criterion_label = criterion_label
+        existing.rationale = rationale
+        existing.timestamp = datetime.utcnow()
+        session.add(existing)
+    else:
+        session.add(ReviewerDecision(
+            project_id=project_id, paper_id=paper_id, reviewer_id=reviewer_id,
+            phase=phase, decision=decision, criterion_label=criterion_label,
+            rationale=rationale,
+        ))
+
+
 def sync_decision_state(session: Session, project_id: int, paper_id: int, phase: str) -> str:
     """Recompute FinalDecision/ConflictLog from the current ReviewerDecisions.
 

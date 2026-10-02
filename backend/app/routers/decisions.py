@@ -15,7 +15,7 @@ from datetime import datetime
 
 from app.database import get_session
 from app.models import Paper, ReviewerDecision, FinalDecision, ConflictLog, Reviewer
-from app.services.decision_service import sync_decision_state
+from app.services.decision_service import record_reviewer_decision, sync_decision_state
 
 router = APIRouter(tags=["decisions"])
 
@@ -73,31 +73,11 @@ def add_decision(
     if not reviewer or reviewer.project_id != project_id:
         raise HTTPException(404, "Reviewer not found")
 
-    # Upsert decision
-    existing = session.exec(
-        select(ReviewerDecision)
-        .where(ReviewerDecision.paper_id == paper.id)
-        .where(ReviewerDecision.reviewer_id == body.reviewer_id)
-        .where(ReviewerDecision.phase == body.phase)
-    ).first()
-
-    if existing:
-        existing.decision = body.decision
-        existing.criterion_label = body.criterion_label
-        existing.rationale = body.rationale
-        existing.timestamp = datetime.utcnow()
-        session.add(existing)
-    else:
-        dec = ReviewerDecision(
-            project_id=project_id,
-            paper_id=paper.id,
-            reviewer_id=body.reviewer_id,
-            phase=body.phase,
-            decision=body.decision,
-            criterion_label=body.criterion_label,
-            rationale=body.rationale,
-        )
-        session.add(dec)
+    record_reviewer_decision(
+        session, project_id=project_id, paper_id=paper.id,
+        reviewer_id=body.reviewer_id, phase=body.phase, decision=body.decision,
+        criterion_label=body.criterion_label, rationale=body.rationale,
+    )
 
     session.commit()
 
