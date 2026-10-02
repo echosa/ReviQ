@@ -48,14 +48,18 @@ def ctx(instance):
     return NS(i=instance, pid=pid, r1=r1, p=by_key)
 
 
-def _match(ctx, rules, *, phase="screening", reviewer=None):
-    return ctx.i.client.post(f"/api/projects/{ctx.pid}/bulk/match", json={
-        "reviewer_id": (reviewer or ctx.r1)["id"], "phase": phase, "rules": rules})
+def _match(ctx, rules, *, phase="screening", reviewer=None, statuses=None):
+    body = {"reviewer_id": (reviewer or ctx.r1)["id"], "phase": phase, "rules": rules}
+    if statuses is not None:
+        body["statuses"] = statuses
+    return ctx.i.client.post(f"/api/projects/{ctx.pid}/bulk/match", json=body)
 
 
-def _bulk(ctx, items, *, phase="screening", reviewer=None):
-    return ctx.i.client.post(f"/api/projects/{ctx.pid}/decisions/bulk", json={
-        "reviewer_id": (reviewer or ctx.r1)["id"], "phase": phase, "decisions": items})
+def _bulk(ctx, items, *, phase="screening", reviewer=None, replace=None):
+    body = {"reviewer_id": (reviewer or ctx.r1)["id"], "phase": phase, "decisions": items}
+    if replace is not None:
+        body["replace"] = replace
+    return ctx.i.client.post(f"/api/projects/{ctx.pid}/decisions/bulk", json=body)
 
 
 def _ids(resp):
@@ -171,7 +175,7 @@ def test_bulk_exclude_records_decisions_and_finals(ctx):
     ids = [ctx.p["a1"]["id"], ctx.p["a4"]["id"]]
     r = _bulk(ctx, [{"paper_id": i, "decision": "E", "criterion_label": "Off-topic",
                      "rationale": "editorial"} for i in ids])
-    assert r.status_code == 200 and r.json() == {"applied": 2}
+    assert r.status_code == 200 and r.json() == {"applied": 2, "replaced": 0, "changes": []}
     for i in ids:
         body = ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{i}/decisions").json()
         assert body["final_decision"]["decision"] == "E"
@@ -415,3 +419,113 @@ def test_hide_lost_leaves_out_groups_with_every_copy_excluded_as_duplicate(ctx):
     assert not any(g["all_excluded_as_duplicate"] for g in hidden["groups"])
     # also under status=all
     assert get(status="all", hide_lost=True)["hidden"] == 1
+
+
+# ── Searching by decision status, and replacing decisions ─────────────────────
+
+def _decide_all(ctx):
+    """a1 included, a2 excluded, a3 uncertain; a4.. left undecided."""
+    r1 = ctx.r1["id"]
+    ctx.i.decide(ctx.pid, ctx.p["a1"]["id"], reviewer_id=r1, decision="I", criterion_label="Terminology")
+    ctx.i.decide(ctx.pid, ctx.p["a2"]["id"], reviewer_id=r1, decision="E", criterion_label="Off-topic")
+    ctx.i.decide(ctx.pid, ctx.p["a3"]["id"], reviewer_id=r1, decision="U")
+
+
+def test_match_searches_only_undecided_unless_asked(ctx):
+    _decide_all(ctx)
+    r = _match(ctx, {"title_terms": ["a"]})
+    ids = set(_ids(r))
+    assert not ids & {ctx.p[k]["id"] for k in ("a1", "a2", "a3")}
+
+
+def test_match_can_search_included_excluded_or_uncertain(ctx):
+    _decide_all(ctx)
+    rules = {"title_terms": ["e", "a", "o", "i"]}      # matches every title
+    for status, key in (("I", "a1"), ("E", "a2"), ("U", "a3")):
+        r = _match(ctx, rules, statuses=[status])
+        assert _ids(r) == [ctx.p[key]["id"]], status
+    both = _match(ctx, rules, statuses=["I", "E"])
+    assert _ids(both) == sorted([ctx.p["a1"]["id"], ctx.p["a2"]["id"]])
+    everything = _match(ctx, rules, statuses=["undecided", "I", "E", "U"])
+    assert everything.json()["candidates"] == len(ctx.p)
+
+
+def test_match_reports_each_records_current_decision(ctx):
+    _decide_all(ctx)
+    r = _match(ctx, {"title_terms": ["a"]}, statuses=["undecided", "I", "E"])
+    by_id = {p["id"]: p for p in r.json()["papers"]}
+    assert (by_id[ctx.p["a1"]["id"]]["decision"], by_id[ctx.p["a1"]["id"]]["criterion_label"]) == ("I", "Terminology")
+    assert by_id[ctx.p["a2"]["id"]]["decision"] == "E"
+    assert by_id[ctx.p["a4"]["id"]]["decision"] is None
+
+
+def test_match_rejects_an_unknown_or_empty_status(ctx):
+    assert _match(ctx, {"title_terms": ["a"]}, statuses=["maybe"]).status_code == 422
+    assert _match(ctx, {"title_terms": ["a"]}, statuses=[]).status_code == 422
+
+
+def test_status_follows_this_reviewers_own_decision(ctx):
+    r2 = ctx.i.add_reviewer(ctx.pid, name="Bob", role="R2")
+    ctx.i.decide(ctx.pid, ctx.p["a1"]["id"], reviewer_id=ctx.r1["id"], decision="I")
+    # Bob has not decided a1, so for him it is undecided.
+    assert ctx.p["a1"]["id"] in _ids(_match(ctx, {"title_terms": ["editorial"]}, reviewer=r2))
+    assert ctx.p["a1"]["id"] not in _ids(_match(ctx, {"title_terms": ["editorial"]}, reviewer=r2, statuses=["I"]))
+
+
+def test_bulk_refuses_a_decided_record_unless_replace_is_set(ctx):
+    _decide_all(ctx)
+    a1 = ctx.p["a1"]["id"]
+    r = _bulk(ctx, [{"paper_id": a1, "decision": "E", "criterion_label": "Off-topic"}])
+    assert r.status_code == 409
+    r = _bulk(ctx, [{"paper_id": a1, "decision": "E", "criterion_label": "Off-topic"}], replace=False)
+    assert r.status_code == 409
+
+
+def test_bulk_replace_changes_the_decision_and_says_what_it_was(ctx):
+    _decide_all(ctx)
+    a1, a2, a4 = (ctx.p[k]["id"] for k in ("a1", "a2", "a4"))
+    r = _bulk(ctx, [
+        {"paper_id": a1, "decision": "E", "criterion_label": "Off-topic", "rationale": "second look"},
+        {"paper_id": a2, "decision": "I", "criterion_label": "Terminology"},
+        {"paper_id": a4, "decision": "E", "criterion_label": "Off-topic"},          # not decided before
+    ], replace=True)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["applied"] == 3 and body["replaced"] == 2
+    assert sorted(body["changes"], key=lambda c: c["paper_id"]) == sorted([
+        {"paper_id": a1, "previous": "I", "previous_criterion": "Terminology"},
+        {"paper_id": a2, "previous": "E", "previous_criterion": "Off-topic"},
+    ], key=lambda c: c["paper_id"])
+    for pid, want in ((a1, "E"), (a2, "I"), (a4, "E")):
+        got = ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{pid}/decisions").json()
+        assert got["final_decision"]["decision"] == want
+        assert len(got["decisions"]) == 1                 # replaced, not added to
+
+
+def test_bulk_replace_still_refuses_what_is_out_of_scope(ctx):
+    _decide_all(ctx)
+    _flag_duplicate(ctx, "a1")
+    r = _bulk(ctx, [{"paper_id": ctx.p["a1"]["id"], "decision": "E"}], replace=True)
+    assert r.status_code == 409                           # flagged duplicate
+    # at full-text, only records screening included
+    r = _bulk(ctx, [{"paper_id": ctx.p["a2"]["id"], "decision": "I"}], phase="full-text", replace=True)
+    assert r.status_code == 409
+
+
+def test_bulk_replace_is_all_or_nothing(ctx):
+    _decide_all(ctx)
+    a1 = ctx.p["a1"]["id"]
+    r = _bulk(ctx, [{"paper_id": a1, "decision": "E"}, {"paper_id": 99999, "decision": "E"}], replace=True)
+    assert r.status_code == 409
+    got = ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{a1}/decisions").json()
+    assert got["final_decision"]["decision"] == "I"       # untouched
+
+
+def test_replacing_a_decision_goes_through_the_conflict_state_machine(ctx):
+    r2 = ctx.i.add_reviewer(ctx.pid, name="Bob", role="R2")
+    a1 = ctx.p["a1"]["id"]
+    ctx.i.decide(ctx.pid, a1, reviewer_id=ctx.r1["id"], decision="I")
+    ctx.i.decide(ctx.pid, a1, reviewer_id=r2["id"], decision="I")        # agreement
+    assert ctx.i.conflicts(ctx.pid, phase="screening") == []
+    assert _bulk(ctx, [{"paper_id": a1, "decision": "E"}], replace=True).status_code == 200
+    assert [c["paper_id"] for c in ctx.i.conflicts(ctx.pid, phase="screening")] == [a1]

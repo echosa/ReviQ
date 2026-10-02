@@ -87,13 +87,26 @@ def own_decisions(
     return {r.paper_id: (r.decision, r.criterion_label) for r in rows}
 
 
-def undecided_papers(
+# What a reviewer's own decision on a record can be, for choosing which records
+# to search: not decided yet, or Include / Exclude / Uncertain.
+STATUSES = ("undecided", "I", "E", "U")
+
+
+def papers_by_status(
     session: Session, project_id: int, phase: str, reviewer_id: int,
-    sources: Optional[list[str]] = None,
-) -> list[Paper]:
+    statuses: list[str], sources: Optional[list[str]] = None,
+) -> tuple[list[Paper], dict[int, tuple[str, Optional[str]]]]:
+    """In-scope records whose decision by this reviewer is one of ``statuses``,
+    with the reviewer's decisions (paper_id -> (decision, criterion))."""
     decided = own_decisions(session, project_id, phase, reviewer_id)
-    return [p for p in candidate_papers(session, project_id, phase, sources)
-            if p.id not in decided]
+    wanted = set(statuses)
+
+    def status(p: Paper) -> str:
+        return decided[p.id][0] if p.id in decided else "undecided"
+
+    papers = [p for p in candidate_papers(session, project_id, phase, sources)
+              if status(p) in wanted]
+    return papers, decided
 
 
 # ── Rule matching ─────────────────────────────────────────────────────────────

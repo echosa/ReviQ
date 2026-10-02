@@ -426,6 +426,9 @@ export interface BulkRules {
   sources: string[]
 }
 
+/** What a reviewer's own decision on a record can be, for choosing which to search. */
+export type BulkStatus = 'undecided' | 'I' | 'E' | 'U'
+
 export interface BulkPaper {
   id: number
   citekey: string
@@ -439,6 +442,9 @@ export interface BulkPaper {
   abstract?: string | null
   /** "original", or anything else for a record ReviQ flagged as a duplicate. */
   dedup_status?: string
+  /** This reviewer's current decision, if any (bulk search results). */
+  decision?: string | null
+  criterion_label?: string | null
 }
 
 export interface BulkMatchResult {
@@ -447,6 +453,13 @@ export interface BulkMatchResult {
   offset: number
   limit: number
   papers: BulkPaper[]
+}
+
+export interface BulkApplyResult {
+  applied: number
+  /** How many of them replaced a decision this reviewer had already made. */
+  replaced: number
+  changes: { paper_id: number; previous: string; previous_criterion: string | null }[]
 }
 
 export interface BulkDecisionItem {

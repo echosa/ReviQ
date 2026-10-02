@@ -96,6 +96,80 @@ describe('bulk actions', () => {
     expect([...document.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['Editorial'])
   })
 
+  it('searches only undecided records unless others are added, and says what it searched', async () => {
+    api.matchUndecided.mockResolvedValue({ candidates: 40, matched: 1, offset: 0, limit: 200, papers: [paper(1)] })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'editorial' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 40 undecided records match/)
+    expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({ statuses: ['undecided'] }))
+
+    fireEvent.click(screen.getByLabelText('Excluded'))
+    fireEvent.click(screen.getByLabelText('Included'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 40 undecided, included and excluded records match/)
+    expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({ statuses: ['undecided', 'I', 'E'] }))
+  })
+
+  it('cannot preview with no status chosen', async () => {
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'editorial' } })
+    fireEvent.click(screen.getByLabelText('Undecided'))
+    expect(screen.getByRole('button', { name: 'Preview matches' })).toBeDisabled()
+    expect(screen.getByText('Choose which records to search.')).toBeInTheDocument()
+  })
+
+  it('shows your current decision on a record that has one', async () => {
+    api.matchUndecided.mockResolvedValue({
+      candidates: 5, matched: 2, offset: 0, limit: 200,
+      papers: [paper(1, { decision: 'I', criterion_label: 'Terminology' }), paper(2)],
+    })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'paper' } })
+    fireEvent.click(screen.getByLabelText('Included'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 5 undecided and included records match/)
+    expect(screen.getAllByText('Your decision:')).toHaveLength(1)      // only Paper 1 has one
+    expect(screen.getByText('Terminology')).toBeInTheDocument()
+  })
+
+  it('asks to replace only when a checked record already has a decision, and says so first', async () => {
+    api.matchUndecided.mockResolvedValue({
+      candidates: 9, matched: 3, offset: 0, limit: 200,
+      papers: [paper(1, { decision: 'I', criterion_label: 'Terminology' }),
+               paper(2, { decision: 'E', criterion_label: 'Off-topic' }), paper(3)],
+    })
+    api.applyBulkDecisions.mockResolvedValue({ applied: 3, replaced: 2, changes: [] })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'paper' } })
+    fireEvent.click(screen.getByLabelText('Included'))
+    fireEvent.click(screen.getByLabelText('Excluded'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 9 undecided, included and excluded records match/)
+
+    fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 3 checked' }))
+    expect(screen.getByText(/2 of them already have a decision from you \(1 included, 1 excluded\); applying replaces them/))
+      .toBeInTheDocument()
+    expect(api.applyBulkDecisions).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(api.applyBulkDecisions).toHaveBeenCalledTimes(1))
+    expect(api.applyBulkDecisions.mock.calls[0][1].replace).toBe(true)
+    expect(await screen.findByRole('status')).toHaveTextContent('Recorded Exclude for 3 records, replacing 2 earlier decisions.')
+  })
+
+  it('does not ask to replace when none of the checked records has a decision', async () => {
+    await previewTitleRule([paper(1), paper(2)])
+    api.applyBulkDecisions.mockResolvedValue({ applied: 2, replaced: 0, changes: [] })
+    fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 2 checked' }))
+    expect(screen.getByText(/Each can still be changed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(api.applyBulkDecisions).toHaveBeenCalled())
+    expect(api.applyBulkDecisions.mock.calls[0][1].replace).toBe(false)
+  })
+
   it('cannot preview until a rule is switched on', async () => {
     renderIn(<BulkView pid={1} phase="screening" />)
     const preview = await screen.findByRole('button', { name: 'Preview matches' })

@@ -14,7 +14,7 @@ import {
   getInclusionCriteria, getPapers, getReviewers, matchUndecided, resolveDuplicates,
 } from '../api/client'
 import type {
-  BulkMatchResult, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
+  BulkMatchResult, BulkStatus, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
 } from '../api/types'
 import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '../utils/bulk'
 import { buildHighlighters, type Highlighters } from '../utils/highlight'
@@ -24,6 +24,18 @@ import AbstractToggle, { AbstractList } from './AbstractToggle'
 import { Card, CardHeader, ConfirmDialog, DecisionBadge, EmptyState, FormField } from './ui'
 
 export type BulkPhase = 'screening' | 'full-text'
+
+const STATUS_LABELS: Record<BulkStatus, string> = {
+  undecided: 'Undecided', I: 'Included', E: 'Excluded', U: 'Uncertain',
+}
+const STATUS_ORDER: BulkStatus[] = ['undecided', 'I', 'E', 'U']
+
+/** "undecided", "undecided and included", "all of your" — for a heading. */
+function statusPhrase(statuses: BulkStatus[]): string {
+  if (statuses.length === STATUS_ORDER.length) return 'of your'
+  const words = STATUS_ORDER.filter(s => statuses.includes(s)).map(s => STATUS_LABELS[s].toLowerCase())
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0]
+}
 
 const nounFor = (phase: BulkPhase) =>
   phase === 'screening' ? PHASE_NOUN.screening : PHASE_NOUN.eligibility
@@ -97,11 +109,15 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
 
   const [form, setForm] = useState<RuleForm>(EMPTY_FORM)
   const [result, setResult] = useState<BulkMatchResult | null>(null)
+  const [statuses, setStatuses] = useState<Set<BulkStatus>>(new Set<BulkStatus>(['undecided']))
+  const [searched, setSearched] = useState<BulkStatus[]>(['undecided'])   // what the shown preview searched
   // Highlights follow the rules the shown preview was made with, not the form
   // as it is edited afterwards.
   const [shown, setShown] = useState<Highlighters | null>(null)
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [decision, setDecision] = useState<'I' | 'E'>('E')
+  // The checked records that already have a decision from this reviewer.
+  const replacing = (result?.papers ?? []).filter(p => checked.has(p.id) && p.decision)
   const [criterion, setCriterion] = useState('')
   const [rationale, setRationale] = useState('')
   const [confirming, setConfirming] = useState(false)
@@ -119,11 +135,12 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const preview = useMutation({
     mutationFn: () => {
       const rules = buildRules(form)
-      return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, limit: 200 })
-        .then(r => ({ r, hl: buildHighlighters(rules) }))
+      const wanted = STATUS_ORDER.filter(s => statuses.has(s))
+      return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, statuses: wanted, limit: 200 })
+        .then(r => ({ r, hl: buildHighlighters(rules), wanted }))
     },
-    onSuccess: ({ r, hl }) => {
-      setResult(r); setShown(hl); setChecked(new Set(r.papers.map(p => p.id))); setErrors([])
+    onSuccess: ({ r, hl, wanted }) => {
+      setResult(r); setShown(hl); setSearched(wanted); setChecked(new Set(r.papers.map(p => p.id))); setErrors([])
     },
     onError: e => { setResult(null); setErrors(apiErrors(e)) },
   })
@@ -135,9 +152,12 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
         paper_id: id, decision, criterion_label: criterion || undefined,
         rationale: rationale || undefined,
       })),
+      // Only asked for when some of the checked records already have a decision.
+      replace: replacing.length > 0,
     }),
     onSuccess: r => {
-      setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${counted(r.applied, noun)}.`)
+      setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${counted(r.applied, noun)}` +
+        (r.replaced > 0 ? `, replacing ${r.replaced} earlier ${r.replaced === 1 ? 'decision' : 'decisions'}.` : '.'))
       setResult(null); setChecked(new Set()); setConfirming(false); setErrors([])
       refresh()
     },
@@ -164,8 +184,9 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       <Card>
         <CardHeader title="Match rules" />
         <p className="text-xs text-ink-muted mb-4">
-          Finds {noun.many} you have not decided yet. Leave a rule empty to switch it off.
-          Nothing is recorded until you apply a decision to the matches.
+          Finds {noun.many} that match the rules below, among the ones you choose to search.
+          Leave a rule empty to switch it off. Nothing is recorded until you apply a decision
+          to the matches.
         </p>
 
         <FormField label="A record must satisfy">
@@ -247,12 +268,29 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
           </FormField>
         </div>
 
+        <FormField label="Search among your" hint="Records you have not decided yet are searched unless you add the others">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {STATUS_ORDER.map(s => (
+              <label key={s} className="flex items-center gap-1.5 text-xs text-ink">
+                <input type="checkbox" checked={statuses.has(s)}
+                  onChange={e => setStatuses(prev => {
+                    const next = new Set(prev)
+                    e.target.checked ? next.add(s) : next.delete(s)
+                    return next
+                  })} />
+                {STATUS_LABELS[s]}
+              </label>
+            ))}
+          </div>
+        </FormField>
+
         <div className="flex items-center gap-3">
-          <button className="btn-primary" disabled={rules === 0 || preview.isPending}
+          <button className="btn-primary" disabled={rules === 0 || statuses.size === 0 || preview.isPending}
             onClick={() => { setDone(null); preview.mutate() }}>
             {preview.isPending ? 'Searching…' : 'Preview matches'}
           </button>
           {rules === 0 && <span className="text-xs text-ink-muted">Turn on at least one rule.</span>}
+          {rules > 0 && statuses.size === 0 && <span className="text-xs text-ink-muted">Choose which records to search.</span>}
         </div>
       </Card>
 
@@ -260,13 +298,13 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       <Errors messages={errors} />
 
       {result && result.matched === 0 && (
-        <EmptyState icon="—" message={`No ${noun.many} match. ${result.candidates.toLocaleString()} undecided were searched.`} />
+        <EmptyState icon="—" message={`No ${noun.many} match. ${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${result.candidates === 1 ? noun.one : noun.many} were searched.`} />
       )}
 
       {result && result.matched > 0 && (
         <Card>
           <CardHeader
-            title={`${result.matched.toLocaleString()} of ${result.candidates.toLocaleString()} undecided ${noun.many} match`} />
+            title={`${result.matched.toLocaleString()} of ${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${noun.many} match`} />
           {result.matched > result.papers.length && (
             <p className="text-xs text-ink-muted mb-3">
               Showing the first {result.papers.length}. Apply to these, then preview again for the rest.
@@ -317,6 +355,12 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                 <div className="min-w-0">
                   <div className="text-sm text-ink"><Highlight text={p.title} pattern={shown?.title ?? null} /></div>
                   <div className="text-xs text-ink-muted"><Meta p={p} hl={shown} /></div>
+                  {p.decision && (
+                    <div className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+                      <span>Your decision:</span><DecisionBadge decision={p.decision} />
+                      {p.criterion_label}
+                    </div>
+                  )}
                   <AbstractToggle abstract={p.abstract} highlight={shown?.abstract ?? null} />
                 </div>
               </label>
@@ -330,7 +374,12 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
         <ConfirmDialog
           confirmLabel="Apply"
           message={`${decision === 'E' ? 'Exclude' : 'Include'} ${counted(checked.size, noun)}${
-            criterion ? ` as "${criterion}"` : ''}? Each can still be changed from the list afterwards.`}
+            criterion ? ` as "${criterion}"` : ''}? ` + (replacing.length > 0
+            ? `${replacing.length} of them already ${replacing.length === 1 ? 'has' : 'have'} a decision from you (${
+                STATUS_ORDER.filter(s => s !== 'undecided').map(s => [s, replacing.filter(p => p.decision === s).length] as const)
+                  .filter(([, n]) => n > 0).map(([s, n]) => `${n} ${STATUS_LABELS[s].toLowerCase()}`).join(', ')
+              }); applying replaces ${replacing.length === 1 ? 'it' : 'them'}.`
+            : 'Each can still be changed from the list afterwards.')}
           onConfirm={() => apply.mutate()}
           onCancel={() => setConfirming(false)}
         />

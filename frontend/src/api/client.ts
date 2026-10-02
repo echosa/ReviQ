@@ -6,7 +6,7 @@ import type {
   Paper, KappaResult, ImportStats, ConflictLog, ExportStats,
   SnowballingIteration, QASummary, ExtractionField, ExtractionSummary,
   GreyRecord, GreyImportResult, Retrieval,
-  BulkRules, BulkMatchResult, BulkDecisionItem,
+  BulkRules, BulkMatchResult, BulkDecisionItem, BulkStatus, BulkApplyResult,
   DuplicateCandidates, DuplicateResolution, DuplicateResolveResult,
 } from './types'
 
@@ -351,13 +351,13 @@ export function apiErrors(e: unknown): string[] {
 
 export const matchUndecided = (
   pid: number,
-  body: { reviewer_id: number; phase: string; rules: BulkRules; limit?: number; offset?: number },
+  body: { reviewer_id: number; phase: string; rules: BulkRules; statuses?: BulkStatus[]; limit?: number; offset?: number },
 ) => api.post<BulkMatchResult>(`/projects/${pid}/bulk/match`, body).then(r => r.data)
 
 export const applyBulkDecisions = (
   pid: number,
-  body: { reviewer_id: number; phase: string; decisions: BulkDecisionItem[] },
-) => api.post<{ applied: number }>(`/projects/${pid}/decisions/bulk`, body).then(r => r.data)
+  body: { reviewer_id: number; phase: string; decisions: BulkDecisionItem[]; replace?: boolean },
+) => api.post<BulkApplyResult>(`/projects/${pid}/decisions/bulk`, body).then(r => r.data)
 
 export const getDuplicateCandidates = (
   pid: number,

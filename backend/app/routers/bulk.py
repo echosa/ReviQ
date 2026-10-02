@@ -51,6 +51,8 @@ def _fail(errors: list[str], status: int = 422) -> None:
 class MatchBody(BaseModel):
     reviewer_id: int
     phase: str = "screening"
+    # Which records to search, by this reviewer's own decision on them.
+    statuses: list[str] = Field(default_factory=lambda: ["undecided"])
     rules: bulk.MatchRules
     limit: int = Field(200, ge=1, le=1000)
     offset: int = Field(0, ge=0)
@@ -58,24 +60,33 @@ class MatchBody(BaseModel):
 
 @router.post("/projects/{project_id}/bulk/match")
 def match_undecided(project_id: int, body: MatchBody, session: Session = Depends(get_session)):
-    """Records this reviewer has not decided yet that satisfy the rules.
+    """Records that satisfy the rules, among those whose decision by this
+    reviewer is one of ``statuses`` (undecided unless asked otherwise).
     Read-only; ``POST /decisions/bulk`` is what applies a decision."""
     _scope(project_id, body.reviewer_id, body.phase, session)
     if not body.rules.predicates():
         _fail(["Enable at least one rule."])
     if body.rules.mode not in ("all", "any"):
         _fail(["mode must be 'all' or 'any'."])
+    if not body.statuses or any(s not in bulk.STATUSES for s in body.statuses):
+        _fail([f"statuses must be a non-empty subset of {', '.join(bulk.STATUSES)}."])
 
-    candidates = bulk.undecided_papers(
-        session, project_id, body.phase, body.reviewer_id, body.rules.sources or None)
+    candidates, decided = bulk.papers_by_status(
+        session, project_id, body.phase, body.reviewer_id, body.statuses,
+        body.rules.sources or None)
     matched = sorted(bulk.match_papers(candidates, body.rules), key=lambda p: p.id)
     page = matched[body.offset: body.offset + body.limit]
+
+    def view(p: Paper) -> dict:
+        decision, criterion = decided.get(p.id, (None, None))
+        return {**_paper_view(p), "decision": decision, "criterion_label": criterion}
+
     return {
         "candidates": len(candidates),
         "matched": len(matched),
         "offset": body.offset,
         "limit": body.limit,
-        "papers": [_paper_view(p) for p in page],
+        "papers": [view(p) for p in page],
     }
 
 
@@ -92,16 +103,21 @@ class BulkBody(BaseModel):
     reviewer_id: int
     phase: str = "screening"
     decisions: list[BulkItem]
+    # Off unless asked: a record this reviewer has already decided is refused,
+    # so that a stale preview cannot silently overwrite anything. On, it is
+    # replaced, and ``changes`` says what each decision was before.
+    replace: bool = False
 
 
 @router.post("/projects/{project_id}/decisions/bulk")
 def apply_bulk_decisions(project_id: int, body: BulkBody, session: Session = Depends(get_session)):
     """Record this reviewer's decision on many records at once.
 
-    Only undecided originals in scope for the phase are accepted: a record this
-    reviewer has already decided is never overwritten here (use the single
-    decision endpoint for that), a record flagged as a duplicate is refused, and
-    at full-text only records screening included can be assessed.
+    Only original records in scope for the phase are accepted: a record flagged
+    as a duplicate is refused, and at full-text only records screening included
+    can be assessed. A record this reviewer has already decided is refused too
+    unless ``replace`` is set, in which case the decision is replaced and its
+    previous value is returned.
     """
     _scope(project_id, body.reviewer_id, body.phase, session)
     if not body.decisions:
@@ -120,8 +136,9 @@ def apply_bulk_decisions(project_id: int, body: BulkBody, session: Session = Dep
             errors.append(f"Paper {pid}: decision must be one of I, E, U.")
         elif pid in seen:
             errors.append(f"Paper {pid}: listed more than once.")
-        elif pid in decided:
-            errors.append(f"Paper {pid}: you have already decided it in this phase.")
+        elif pid in decided and not body.replace:
+            errors.append(f"Paper {pid}: you have already decided it in this phase "
+                          "(ask to replace decisions to change it).")
         elif pid not in in_scope:
             errors.append(
                 f"Paper {pid}: not an original record in scope for {body.phase} "
@@ -130,6 +147,9 @@ def apply_bulk_decisions(project_id: int, body: BulkBody, session: Session = Dep
     if errors:
         _fail(errors, 409)
 
+    changes = [{"paper_id": i.paper_id, "previous": decided[i.paper_id][0],
+                "previous_criterion": decided[i.paper_id][1]}
+               for i in body.decisions if i.paper_id in decided]
     for item in body.decisions:
         record_reviewer_decision(
             session, project_id=project_id, paper_id=item.paper_id,
@@ -140,7 +160,7 @@ def apply_bulk_decisions(project_id: int, body: BulkBody, session: Session = Dep
     for item in body.decisions:
         sync_decision_state(session, project_id, item.paper_id, body.phase)
     session.commit()
-    return {"applied": len(body.decisions)}
+    return {"applied": len(body.decisions), "replaced": len(changes), "changes": changes}
 
 
 # ── Duplicate review ──────────────────────────────────────────────────────────

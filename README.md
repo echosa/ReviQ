@@ -48,13 +48,16 @@ readable.
 
 Screening and Eligibility each have a **Bulk actions** and a **Duplicates** tab.
 
-**Bulk actions** finds the records you have not decided yet that match rules
-(language code, title keyword, year outside a range, venue keyword, abstract
+**Bulk actions** finds the records that match rules (language code, title
+keyword, year outside a range, venue keyword, title-or-abstract terms, abstract
 missing or present, optionally limited to some imports), either all of the rules
-or any of them. You see the matches first; nothing is recorded until you choose
-a decision and a criterion and confirm. Only your own undecided records are
-offered, so a bulk action never overwrites a decision, and a request is applied
-whole or not at all.
+or any of them. By default it searches the records you have not decided yet; you
+can add the ones you have included, excluded or marked uncertain, to look back at
+earlier decisions. You see the matches first, each with your current decision;
+nothing is recorded until you choose a decision and a criterion and confirm. A
+decision you have already made is only replaced when the checked records include
+one, the confirmation says how many, and the server reports what each was
+before. A request is applied whole or not at all.
 
 **Duplicates** lists records that look like the same work but were not caught at
 import, typically a copy with no DOI whose title carries a venue prefix. You
