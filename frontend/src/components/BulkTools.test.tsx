@@ -159,7 +159,11 @@ describe('duplicate review', () => {
   const pair = () => group([member(10), member(11)])
 
   async function open(groups: DuplicateGroup[]) {
-    api.getDuplicateCandidates.mockResolvedValue({ total: groups.length, offset: 0, limit: 100, groups })
+    api.getDuplicateCandidates.mockResolvedValue({
+      total: groups.length, offset: 0, limit: 100, groups,
+      copies: groups.reduce((n, g) => n + g.papers.length, 0),
+      lost: groups.filter(g => g.all_excluded_as_duplicate).length,
+    })
     renderIn(<DuplicatesView pid={1} phase="screening" />)
     await screen.findByText('Paper 10')
   }
@@ -219,8 +223,30 @@ describe('duplicate review', () => {
       .getAllByRole('button').length).toBe(3)
   })
 
+  it('shows how many groups and copies there are, and how many have lost every copy', async () => {
+    const dup = { decision: 'E', criterion_label: 'Duplicate' }
+    await open([
+      pair(),
+      group([member(20, dup), member(21, dup)], { all_excluded_as_duplicate: true }),
+      group([member(30), member(31), member(32)]),
+    ])
+    expect(screen.getByTestId('duplicate-totals')).toHaveTextContent(
+      '3 groups (7 copies) need a decision · 1 where every copy is already excluded as a duplicate')
+  })
+
+  it('says "in total" when all groups are shown, and does not mention losses when there are none', async () => {
+    api.getDuplicateCandidates.mockResolvedValue({
+      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, groups: [pair()],
+    })
+    renderIn(<DuplicatesView pid={1} phase="screening" />)
+    await screen.findByText('Paper 10')
+    fireEvent.change(screen.getByLabelText('Show groups'), { target: { value: 'all' } })
+    await waitFor(() => expect(screen.getByTestId('duplicate-totals'))
+      .toHaveTextContent(/^1 group \(2 copies\) in total$/))
+  })
+
   it('says when there is nothing to review', async () => {
-    api.getDuplicateCandidates.mockResolvedValue({ total: 0, offset: 0, limit: 100, groups: [] })
+    api.getDuplicateCandidates.mockResolvedValue({ total: 0, offset: 0, limit: 100, copies: 0, lost: 0, groups: [] })
     renderIn(<DuplicatesView pid={1} phase="screening" />)
     expect(await screen.findByText(/No possible duplicates need a decision/)).toBeInTheDocument()
   })

@@ -440,6 +440,14 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
             Exclude {toExclude} {toExclude === 1 ? 'copy' : 'copies'} in {ready.length} {ready.length === 1 ? 'group' : 'groups'}
           </button>
         </div>
+        {data && (
+          <p className="text-xs text-ink-muted mt-3" data-testid="duplicate-totals">
+            <strong className="text-ink">{data.total.toLocaleString()}</strong> {data.total === 1 ? 'group' : 'groups'}
+            {' '}({data.copies.toLocaleString()} {data.copies === 1 ? 'copy' : 'copies'})
+            {status === 'open' ? ' need a decision' : ' in total'}
+            {data.lost > 0 && <> · <strong className="text-exclude">{data.lost.toLocaleString()}</strong> where every copy is already excluded as a duplicate</>}
+          </p>
+        )}
       </Card>
 
       {done && <p role="status" className="text-sm text-include">{done}</p>}

@@ -470,7 +470,12 @@ export interface DuplicateGroup {
 }
 
 export interface DuplicateCandidates {
+  /** Groups, over every page. */
   total: number
+  /** Records in those groups. */
+  copies: number
+  /** Groups whose every copy is excluded only as "Duplicate". */
+  lost: number
   offset: number
   limit: number
   groups: DuplicateGroup[]

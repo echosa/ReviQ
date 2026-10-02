@@ -204,6 +204,9 @@ def duplicate_candidates(
                 groups.append(v)
     groups.sort(key=lambda g: min(m["id"] for m in g["papers"]))
     return {"total": len(groups), "offset": offset, "limit": limit,
+            # Totals over every group, not just this page.
+            "copies": sum(len(g["papers"]) for g in groups),
+            "lost": sum(g["all_excluded_as_duplicate"] for g in groups),
             "groups": groups[offset: offset + limit]}
 
 

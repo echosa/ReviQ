@@ -377,3 +377,21 @@ def test_a_work_lost_to_a_flagged_copy_is_surfaced(ctx):
     # The flagged copy cannot be named in a resolution.
     r = _resolve(ctx, [{"keep": [c2["id"]], "exclude": [c1["id"]]}])
     assert r.status_code == 422
+
+
+def test_duplicate_candidates_report_totals_over_every_page(ctx):
+    ctx.i.import_bib(ctx.pid, [
+        {"citekey": "b1", "title": "Indirect speech acts", "year": 2001, "doi": "10.1/b", "venue": "X"},
+        {"citekey": "b2", "title": "Indirect Speech Acts", "year": 1979, "venue": "Y"},
+        {"citekey": "b3", "title": "Indirect speech acts!", "year": 1980, "venue": "Z"},
+    ], db_name="springerlink")
+    by_key = {p["citekey"]: p for p in ctx.i.papers(ctx.pid)}
+    for k in ("a5", "a6"):
+        ctx.i.decide(ctx.pid, ctx.p[k]["id"], reviewer_id=ctx.r1["id"], decision="E",
+                     criterion_label="Duplicate")
+    r = ctx.i.client.get(f"/api/projects/{ctx.pid}/duplicate-candidates",
+                         params={"reviewer_id": ctx.r1["id"], "limit": 1})
+    body = r.json()
+    assert body["total"] == 2 and len(body["groups"]) == 1      # one page of two groups
+    assert body["copies"] == 5                                   # 3 speech-act copies + the pair
+    assert body["lost"] == 1                                     # the pair, both excluded as Duplicate
