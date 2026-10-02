@@ -17,6 +17,7 @@ import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField,
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
+import AbstractToggle from '../components/AbstractToggle'
 import type { SnowballingIteration, Paper } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -578,6 +579,7 @@ function IterationPapersView({ pid, iterationNumber }: { pid: number; iterationN
                 </div>
                 <h3 className="text-sm font-medium text-ink mt-1 leading-snug">{paper.title}</h3>
                 {paper.authors && <p className="text-xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.authors)}</p>}
+                <AbstractToggle abstract={paper.abstract} />
               </div>
             </div>
           )

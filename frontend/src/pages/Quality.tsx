@@ -6,6 +6,7 @@ import { getQASummary, upsertQAScore, getReviewers } from '../api/client'
 import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField, EmptyState,
 } from '../components/ui'
+import AbstractToggle from '../components/AbstractToggle'
 import type { QAPaperResult, QAScoreEntry } from '../api/types'
 import { formatAuthors } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -151,6 +152,7 @@ function PaperQARow({ paper, criteria, onScore }: {
         </div>
         <p className="text-sm font-medium text-ink leading-snug">{paper.paper_title}</p>
         {paper.paper_authors && <p className="text-2xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.paper_authors)}</p>}
+        <AbstractToggle abstract={paper.paper_abstract} />
       </div>
     </div>
   )

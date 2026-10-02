@@ -15,6 +15,7 @@ import {
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
 import GreyRecordPanel from '../components/GreyRecordPanel'
+import AbstractToggle from '../components/AbstractToggle'
 import { isGrey } from '../components/streams'
 import { BulkView, DuplicatesView } from '../components/BulkTools'
 import type { Paper, ConflictLog } from '../api/types'
@@ -235,6 +236,7 @@ function PaperRow({ paper, reviewerId, onDecide }: { paper: Paper; reviewerId?: 
         </div>
         <p className="text-sm font-medium text-ink leading-snug">{paper.title}</p>
         {paper.authors && <p className="text-2xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.authors)}</p>}
+        <AbstractToggle abstract={paper.abstract} />
       </div>
     </div>
   )

@@ -222,6 +222,7 @@ def extraction_summary(
             "citekey": paper.citekey,
             "title": paper.title,
             "authors": paper.authors,
+            "abstract": paper.abstract,
             "year": paper.year,
             "source": paper.source,
             "values": vals,

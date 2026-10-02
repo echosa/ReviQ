@@ -18,6 +18,7 @@ import type {
 } from '../api/types'
 import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '../utils/bulk'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
+import AbstractToggle from './AbstractToggle'
 import { Card, CardHeader, ConfirmDialog, DecisionBadge, EmptyState, FormField } from './ui'
 
 export type BulkPhase = 'screening' | 'full-text'
@@ -294,12 +295,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                 <div className="min-w-0">
                   <div className="text-sm text-ink">{p.title}</div>
                   <div className="text-xs text-ink-muted">{meta(p)}</div>
-                  {p.abstract?.trim() && (
-                    <details className="text-xs text-ink-muted mt-1">
-                      <summary className="cursor-pointer">Abstract</summary>
-                      <p className="mt-1">{p.abstract}</p>
-                    </details>
-                  )}
+                  <AbstractToggle abstract={p.abstract} />
                 </div>
               </label>
             ))}
@@ -461,6 +457,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
                   <div className="text-xs text-ink-muted">
                     {meta(p)}{p.doi ? ` · ${p.doi}` : ' · no DOI'} · ID {p.id}
                   </div>
+                  <AbstractToggle abstract={p.abstract} />
                   {p.decision && (
                     <div className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
                       <DecisionBadge decision={p.decision} />

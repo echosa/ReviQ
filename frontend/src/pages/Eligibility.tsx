@@ -16,6 +16,7 @@ import {
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
 import { BulkView, DuplicatesView } from '../components/BulkTools'
+import AbstractToggle from '../components/AbstractToggle'
 import type { Paper, ConflictLog } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { counted, PHASE_NOUN } from '../utils/vocabulary'
@@ -272,6 +273,7 @@ function PaperRow({ paper, reviewerId, onDecide }: { paper: Paper; reviewerId?: 
         </div>
         <p className="text-sm font-medium text-ink leading-snug">{paper.title}</p>
         {paper.authors && <p className="text-2xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.authors)}</p>}
+        <AbstractToggle abstract={paper.abstract} />
         {paper.full_text_url && (
           <a href={paper.full_text_url} target="_blank" rel="noopener noreferrer"
             className="text-2xs text-info hover:underline mt-0.5 block"

@@ -163,6 +163,7 @@ def qa_summary(
             "paper_id": pid,
             "paper_title": paper.title,
             "paper_authors": paper.authors,
+            "paper_abstract": paper.abstract,
             "paper_year": paper.year,
             "paper_source": paper.source,
             "scores": [{"criterion_id": c.id, "label": c.label, "description": c.description,

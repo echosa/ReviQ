@@ -202,6 +202,7 @@ export interface QAPaperResult {
   paper_id: number
   paper_title: string
   paper_authors?: string
+  paper_abstract?: string | null
   paper_year?: number
   paper_source: string
   scores: QAScoreEntry[]
@@ -242,6 +243,7 @@ export interface ExtractionPaperRow {
   citekey: string
   title: string
   authors?: string
+  abstract?: string | null
   year?: number
   source: string
   values: Record<string, string | undefined>

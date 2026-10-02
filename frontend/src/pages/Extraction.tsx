@@ -14,6 +14,7 @@ import {
 import {
   Card, CardHeader, StatBar, StatCell, Modal, FormField, EmptyState,
 } from '../components/ui'
+import AbstractToggle from '../components/AbstractToggle'
 import type { ExtractionField, ExtractionPaperRow } from '../api/types'
 import { formatAuthors } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -457,6 +458,7 @@ function ExtractionPaperCard({ paper, onExtract }: { paper: ExtractionPaperRow; 
         </div>
         <h3 className="text-sm font-medium text-ink mt-1 leading-snug">{paper.title}</h3>
         {paper.authors && <p className="text-xs text-ink-muted mt-0.5">{formatAuthors(paper.authors)}</p>}
+        <AbstractToggle abstract={paper.abstract} />
       </div>
     </div>
   )
