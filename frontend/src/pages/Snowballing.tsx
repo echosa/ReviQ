@@ -580,7 +580,7 @@ function IterationPapersView({ pid, iterationNumber }: { pid: number; iterationN
                 </div>
                 <h3 className="text-sm font-medium text-ink mt-1 leading-snug">{paper.title}</h3>
                 {paper.authors && <p className="text-xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.authors)}</p>}
-                <AbstractToggle abstract={paper.abstract} />
+                <AbstractToggle abstract={paper.abstract} title={paper.title} authors={paper.authors} />
               </div>
             </div>
           )

@@ -377,7 +377,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                       {p.criterion_label}
                     </div>
                   )}
-                  <AbstractToggle abstract={p.abstract} highlight={shown?.abstract ?? null} />
+                  <AbstractToggle abstract={p.abstract} highlight={shown?.abstract ?? null} title={p.title} authors={p.authors} />
                 </div>
               </label>
             ))}
@@ -564,7 +564,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
                   <div className="text-xs text-ink-muted">
                     <Meta p={p} />{p.doi ? ` · ${p.doi}` : ' · no DOI'} · ID {p.id}
                   </div>
-                  <AbstractToggle abstract={p.abstract} />
+                  <AbstractToggle abstract={p.abstract} title={p.title} authors={p.authors} />
                   {p.decision && (
                     <div className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
                       <DecisionBadge decision={p.decision} />

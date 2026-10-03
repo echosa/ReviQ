@@ -238,7 +238,7 @@ function PaperRow({ paper, reviewerId, onDecide }: { paper: Paper; reviewerId?: 
         </div>
         <p className="text-sm font-medium text-ink leading-snug">{paper.title}</p>
         {paper.authors && <p className="text-2xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.authors)}</p>}
-        <AbstractToggle abstract={paper.abstract} />
+        <AbstractToggle abstract={paper.abstract} title={paper.title} authors={paper.authors} />
       </div>
     </div>
   )

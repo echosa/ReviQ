@@ -154,7 +154,7 @@ function PaperQARow({ paper, criteria, onScore }: {
         </div>
         <p className="text-sm font-medium text-ink leading-snug">{paper.paper_title}</p>
         {paper.paper_authors && <p className="text-2xs text-ink-muted mt-0.5 truncate">{formatAuthors(paper.paper_authors)}</p>}
-        <AbstractToggle abstract={paper.paper_abstract} />
+        <AbstractToggle abstract={paper.paper_abstract} title={paper.paper_title} authors={paper.paper_authors} />
       </div>
     </div>
   )

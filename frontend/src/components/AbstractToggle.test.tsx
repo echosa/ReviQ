@@ -74,3 +74,35 @@ describe('AbstractList', () => {
     expect(screen.queryByRole('button', { name: 'Show all abstracts' })).toBeNull()
   })
 })
+
+describe('Google Scholar link', () => {
+  it('opens a Scholar search for the record in a new tab', () => {
+    render(<AbstractToggle abstract="Text" title="Irony Detection Using Transformers for Social Media" authors="Smith, Jane" />)
+    const link = screen.getByRole('link', { name: /Google Scholar/ })
+    expect(link).toHaveAttribute('href',
+      'https://scholar.google.com/scholar?q=' + encodeURIComponent('Irony Detection Using Transformers for Social Media'))
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+
+  it('is there when the record has no abstract', () => {
+    render(<AbstractToggle abstract={null} title="Indirect Speech Acts" authors="Searle, John" />)
+    expect(screen.getByText('No abstract')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Google Scholar/ })).toHaveAttribute('href',
+      'https://scholar.google.com/scholar?q=' + encodeURIComponent('Indirect Speech Acts Searle'))
+  })
+
+  it('does not trigger the row it sits in', () => {
+    const onRow = vi.fn()
+    render(<div onClick={onRow}><AbstractToggle abstract="Text" title="A title of five words" /></div>)
+    const link = screen.getByRole('link', { name: /Google Scholar/ })
+    link.addEventListener('click', e => e.preventDefault())        // keep jsdom from navigating
+    fireEvent.click(link)
+    expect(onRow).not.toHaveBeenCalled()
+  })
+
+  it('is left out when no title is given', () => {
+    render(<AbstractToggle abstract="Text" />)
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+})
