@@ -14,7 +14,7 @@ import {
   getInclusionCriteria, getPapers, getReviewers, matchUndecided, resolveDuplicates,
 } from '../api/client'
 import type {
-  BulkMatchResult, BulkRules, BulkStatus, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
+  BulkMatchResult, BulkPaper, BulkRules, BulkStatus, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
 } from '../api/types'
 import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '../utils/bulk'
 import { buildHighlighters, type Highlighters } from '../utils/highlight'
@@ -189,6 +189,32 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
     mutationFn: (limit: number) => matchUndecided(pid, {
       reviewer_id: reviewerId!, phase, rules: previewRules!, statuses: searched, limit }),
     onSuccess: r => { setResult(r); setChecked(new Set(r.papers.map(p => p.id))); setErrors([]) },
+    onError: e => setErrors(apiErrors(e)),
+  })
+  // Decide one result on the spot. The preview is then loaded again (same rules,
+  // same search), because "Apply to all" needs the server's count of matches to
+  // equal the preview's, and a record decided here may have left the search.
+  // Records unchecked before stay unchecked; ones that appear are checked.
+  const decideOne = useMutation({
+    mutationFn: async ({ paper, choice }: { paper: BulkPaper; choice: string }) => {
+      const [d, ...rest] = choice.split('|')
+      const label = rest.join('|')
+      await applyBulkDecisions(pid, {
+        reviewer_id: reviewerId!, phase, replace: !!paper.decision,
+        decisions: [{ paper_id: paper.id, decision: d as 'I' | 'E', criterion_label: label || undefined }],
+      })
+      const fresh = await matchUndecided(pid, {
+        reviewer_id: reviewerId!, phase, rules: previewRules!, statuses: searched, limit: pageSize })
+      return { fresh, paper, d, label }
+    },
+    onSuccess: ({ fresh, paper, d, label }) => {
+      const before = new Set((result?.papers ?? []).map(p => p.id))
+      setResult(fresh)
+      setChecked(prev => new Set(fresh.papers.filter(p => !before.has(p.id) || prev.has(p.id)).map(p => p.id)))
+      setDone(`Recorded ${d === 'E' ? 'Exclude' : 'Include'}${label ? ` (${label})` : ''} for “${paper.title}”.`)
+      setErrors([])
+      refresh()
+    },
     onError: e => setErrors(apiErrors(e)),
   })
   const changePageSize = (n: number) => {
@@ -457,7 +483,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               <label key={p.id} className="paper-row gap-3">
                 <input type="checkbox" className="mt-1" checked={checked.has(p.id)}
                   onChange={() => toggle(p.id)} aria-label={`Include ${p.title} in this action`} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-sm text-ink"><Highlight text={p.title} pattern={shown?.title ?? null} /></div>
                   <div className="text-xs text-ink-muted"><Meta p={p} hl={shown} /></div>
                   {p.decision && (
@@ -467,6 +493,24 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                     </div>
                   )}
                   <AbstractToggle abstract={p.abstract} highlight={shown?.abstract ?? null} title={p.title} authors={p.authors} />
+                </div>
+                {/* Decide just this one, here: the batch tools above are left alone. */}
+                <div className="shrink-0 self-start">
+                  <select className="select !w-auto !py-1 text-xs" aria-label={`Decide: ${p.title}`}
+                    value="" disabled={decideOne.isPending}
+                    onChange={e => { if (e.target.value) decideOne.mutate({ paper: p, choice: e.target.value }) }}>
+                    <option value="">Decide this one…</option>
+                    <optgroup label="Include">
+                      {criteria.inclusion.length > 0
+                        ? criteria.inclusion.map(c => <option key={`i${c.id}`} value={`I|${c.label}`}>{c.label}</option>)
+                        : <option value="I|">Include</option>}
+                    </optgroup>
+                    <optgroup label="Exclude">
+                      {criteria.exclusion.length > 0
+                        ? criteria.exclusion.map(c => <option key={`e${c.id}`} value={`E|${c.label}`}>{c.label}</option>)
+                        : <option value="E|">Exclude</option>}
+                    </optgroup>
+                  </select>
                 </div>
               </label>
             ))}

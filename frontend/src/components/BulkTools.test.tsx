@@ -132,7 +132,8 @@ describe('bulk actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
     await screen.findByText(/of 5 undecided and included records match/)
     expect(screen.getAllByText('Your decision:')).toHaveLength(1)      // only Paper 1 has one
-    expect(screen.getByText('Terminology')).toBeInTheDocument()
+    const line = screen.getByText('Your decision:').parentElement as HTMLElement
+    expect(within(line).getByText('Terminology')).toBeInTheDocument()
   })
 
   it('asks to replace only when a checked record already has a decision, and says so first', async () => {
@@ -242,6 +243,100 @@ describe('bulk actions', () => {
     await screen.findByText(/of 40 undecided records match/)
     expect(screen.getByLabelText('Criterion')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeDisabled()
+  })
+
+  describe('deciding one result on the spot', () => {
+    const page = (papers: BulkPaper[], matched = papers.length) => ({
+      candidates: 5000, matched, offset: 0, limit: 200, papers,
+      matched_by_status: { undecided: matched, I: 0, E: 0, U: 0 },
+    })
+
+    async function preview(result: ReturnType<typeof page>, term = 'zebra') {
+      api.matchUndecided.mockResolvedValue(result)
+      renderIn(<BulkView pid={1} phase="screening" />)
+      fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: term } })
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided records match/)
+    }
+
+    it('gives each result its own include and exclude choices, by criterion', async () => {
+      await preview(page([paper(1), paper(2)]))
+      const sel = screen.getByLabelText('Decide: Paper 1') as HTMLSelectElement
+      const groups = [...sel.querySelectorAll('optgroup')].map(g => [g.label, [...g.querySelectorAll('option')].map(o => o.value)])
+      expect(groups).toEqual([['Include', ['I|Terminology']], ['Exclude', ['E|Off-topic', 'E|Duplicate']]])
+      expect(screen.getByLabelText('Decide: Paper 2')).toBeInTheDocument()
+    })
+
+    it('records just that one, then reloads the same preview', async () => {
+      await preview(page([paper(1), paper(2), paper(3)]))
+      api.applyBulkDecisions.mockResolvedValue({ applied: 1, replaced: 0, changes: [] })
+      api.matchUndecided.mockResolvedValue(page([paper(1), paper(3)]))          // paper 2 has left the search
+      fireEvent.change(screen.getByLabelText('Title terms'), { target: { value: 'edited afterwards' } })
+      fireEvent.change(screen.getByLabelText('Decide: Paper 2'), { target: { value: 'E|Off-topic' } })
+
+      await waitFor(() => expect(api.applyBulkDecisions).toHaveBeenCalledTimes(1))
+      expect(api.applyBulkDecisions).toHaveBeenCalledWith(1, {
+        reviewer_id: 1, phase: 'screening', replace: false,
+        decisions: [{ paper_id: 2, decision: 'E', criterion_label: 'Off-topic' }],
+      })
+      await waitFor(() => expect(screen.queryByText('Paper 2')).toBeNull())
+      const calls = api.matchUndecided.mock.calls
+      const reload = calls[calls.length - 1][1]
+      expect(reload.rules.title_terms).toEqual(['zebra'])                       // the preview's rules, not the edited form
+      expect(reload.statuses).toEqual(['undecided'])
+      expect(await screen.findByRole('status')).toHaveTextContent('Recorded Exclude (Off-topic) for “Paper 2”.')
+      expect(api.applyBulkToMatches).not.toHaveBeenCalled()
+    })
+
+    it('keeps the records you had unchecked unchecked', async () => {
+      await preview(page([paper(1), paper(2), paper(3)]))
+      fireEvent.click(screen.getByLabelText('Include Paper 3 in this action'))               // uncheck 3
+      api.applyBulkDecisions.mockResolvedValue({ applied: 1, replaced: 0, changes: [] })
+      api.matchUndecided.mockResolvedValue(page([paper(1), paper(3)]))
+      fireEvent.change(screen.getByLabelText('Decide: Paper 2'), { target: { value: 'I|Terminology' } })
+      await waitFor(() => expect(screen.queryByText('Paper 2')).toBeNull())
+      expect((screen.getByLabelText('Include Paper 3 in this action') as HTMLInputElement).checked).toBe(false)
+      expect((screen.getByLabelText('Include Paper 1 in this action') as HTMLInputElement).checked).toBe(true)
+      expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeInTheDocument()
+    })
+
+    it('replaces a decision the record already has, and says so', async () => {
+      api.matchUndecided.mockResolvedValue({
+        ...page([paper(1, { decision: 'I', criterion_label: 'Terminology' })]),
+        matched_by_status: { undecided: 0, I: 1, E: 0, U: 0 },
+      })
+      renderIn(<BulkView pid={1} phase="screening" />)
+      fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'zebra' } })
+      fireEvent.click(screen.getByLabelText('Included'))
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided and included records match/)
+      api.applyBulkDecisions.mockResolvedValue({ applied: 1, replaced: 1, changes: [] })
+      fireEvent.change(screen.getByLabelText('Decide: Paper 1'), { target: { value: 'E|Off-topic' } })
+      await waitFor(() => expect(api.applyBulkDecisions).toHaveBeenCalled())
+      expect(api.applyBulkDecisions.mock.calls[0][1].replace).toBe(true)
+    })
+
+    it('shows the server\'s reason if it is refused, and keeps the list', async () => {
+      await preview(page([paper(1), paper(2)]))
+      api.applyBulkDecisions.mockRejectedValue(new Error('409'))
+      fireEvent.change(screen.getByLabelText('Decide: Paper 1'), { target: { value: 'E|Duplicate' } })
+      expect(await screen.findByRole('alert')).toHaveTextContent('The server said no.')
+      expect(screen.getByText('Paper 1')).toBeInTheDocument()
+      expect(screen.getByText('Paper 2')).toBeInTheDocument()
+    })
+
+    it('does not touch the batch criterion or rationale', async () => {
+      await preview(page([paper(1), paper(2)]))
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      fireEvent.change(screen.getByLabelText('Rationale'), { target: { value: 'Rule-triaged' } })
+      api.applyBulkDecisions.mockResolvedValue({ applied: 1, replaced: 0, changes: [] })
+      api.matchUndecided.mockResolvedValue(page([paper(2)]))
+      fireEvent.change(screen.getByLabelText('Decide: Paper 1'), { target: { value: 'I|Terminology' } })
+      await waitFor(() => expect(screen.queryByText('Paper 1')).toBeNull())
+      expect(api.applyBulkDecisions.mock.calls[0][1].decisions[0].rationale).toBeUndefined()   // no "Rule-triaged" on a hand decision
+      expect(screen.getByLabelText('Criterion')).toHaveValue('Off-topic')
+      expect(screen.getByLabelText('Rationale')).toHaveValue('Rule-triaged')
+    })
   })
 
   describe('page size', () => {
