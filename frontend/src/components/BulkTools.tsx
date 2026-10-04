@@ -167,6 +167,9 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${counted(r.applied, noun)}` +
         (r.replaced > 0 ? `, replacing ${r.replaced} earlier ${r.replaced === 1 ? 'decision' : 'decisions'}.` : '.'))
       setResult(null); setChecked(new Set()); setConfirming(false); setErrors([])
+      // Back to "— choose —": a criterion left over from this batch must not be
+      // applied to the next one without being chosen again.
+      setCriterion('')
       refresh()
     },
     onError: e => { setConfirming(false); setErrors(apiErrors(e)) },

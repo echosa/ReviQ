@@ -223,6 +223,25 @@ describe('bulk actions', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Recorded Exclude for 2 records.')
   })
 
+  it('forgets the criterion after an apply, so the next batch has to choose its own', async () => {
+    await previewTitleRule([paper(1)])
+    api.applyBulkDecisions.mockResolvedValue({ applied: 1, replaced: 0, changes: [] })
+    fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+    expect(screen.getByLabelText('Criterion')).toHaveValue('Off-topic')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to 1 checked' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(api.applyBulkDecisions).toHaveBeenCalledTimes(1))
+    expect(api.applyBulkDecisions.mock.calls[0][1].decisions[0].criterion_label).toBe('Off-topic')
+    await screen.findByRole('status')
+
+    // The next preview starts with no criterion chosen, and cannot be applied until one is.
+    api.matchUndecided.mockResolvedValue({ candidates: 40, matched: 1, offset: 0, limit: 200, papers: [paper(2)] })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+    await screen.findByText(/of 40 undecided records match/)
+    expect(screen.getByLabelText('Criterion')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeDisabled()
+  })
+
   it('will not apply until a criterion is chosen', async () => {
     await previewTitleRule([paper(1)])
     expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeDisabled()
