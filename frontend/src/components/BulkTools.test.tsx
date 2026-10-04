@@ -250,7 +250,7 @@ describe('duplicate review', () => {
     api.getDuplicateCandidates.mockResolvedValue({
       total: groups.length, offset: 0, limit: 100, groups,
       copies: groups.reduce((n, g) => n + g.papers.length, 0),
-      lost: groups.filter(g => g.all_excluded_as_duplicate).length, hidden: 0,
+      lost: groups.filter(g => g.all_excluded_as_duplicate).length, hidden: 0, hidden_settled: 0,
     })
     renderIn(<DuplicatesView pid={1} phase="screening" />)
     await screen.findByText('Paper 10')
@@ -324,7 +324,7 @@ describe('duplicate review', () => {
 
   it('says "in total" when all groups are shown, and does not mention losses when there are none', async () => {
     api.getDuplicateCandidates.mockResolvedValue({
-      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, hidden: 0, groups: [pair()],
+      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, hidden: 0, hidden_settled: 0, groups: [pair()],
     })
     renderIn(<DuplicatesView pid={1} phase="screening" />)
     await screen.findByText('Paper 10')
@@ -339,7 +339,7 @@ describe('duplicate review', () => {
     expect(api.getDuplicateCandidates).toHaveBeenLastCalledWith(1, expect.objectContaining({ hide_lost: false }))
 
     api.getDuplicateCandidates.mockResolvedValue({
-      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, hidden: 1, groups: [group([member(30), member(31)])],
+      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, hidden: 1, hidden_settled: 0, groups: [group([member(30), member(31)])],
     })
     fireEvent.click(screen.getByLabelText(/Hide groups where every copy is already excluded/))
     await waitFor(() => expect(api.getDuplicateCandidates)
@@ -349,8 +349,23 @@ describe('duplicate review', () => {
     expect(screen.queryByRole('alert')).toBeNull()          // the red warning went with it
   })
 
+  it('asks the server to leave out settled groups, and says how many it hid', async () => {
+    const dup = { decision: 'E', criterion_label: 'Duplicate' }
+    await open([group([member(20, dup), member(21, dup), member(22)]), pair()])
+    expect(api.getDuplicateCandidates).toHaveBeenLastCalledWith(1, expect.objectContaining({ hide_settled: false }))
+
+    api.getDuplicateCandidates.mockResolvedValue({
+      total: 1, offset: 0, limit: 100, copies: 2, lost: 0, hidden: 0, hidden_settled: 4, groups: [group([member(30), member(31)])],
+    })
+    fireEvent.click(screen.getByLabelText(/Hide groups where all but one copy is already excluded/))
+    await waitFor(() => expect(api.getDuplicateCandidates)
+      .toHaveBeenLastCalledWith(1, expect.objectContaining({ hide_settled: true, hide_lost: false })))
+    await waitFor(() => expect(screen.getByTestId('duplicate-totals'))
+      .toHaveTextContent('1 group (2 copies) need a decision · 4 settled groups hidden'))
+  })
+
   it('says when there is nothing to review', async () => {
-    api.getDuplicateCandidates.mockResolvedValue({ total: 0, offset: 0, limit: 100, copies: 0, lost: 0, hidden: 0, groups: [] })
+    api.getDuplicateCandidates.mockResolvedValue({ total: 0, offset: 0, limit: 100, copies: 0, lost: 0, hidden: 0, hidden_settled: 0, groups: [] })
     renderIn(<DuplicatesView pid={1} phase="screening" />)
     expect(await screen.findByText(/No possible duplicates need a decision/)).toBeInTheDocument()
   })

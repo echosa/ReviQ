@@ -361,7 +361,7 @@ export const applyBulkDecisions = (
 
 export const getDuplicateCandidates = (
   pid: number,
-  params: { reviewer_id: number; phase: string; status?: 'open' | 'all'; hide_lost?: boolean; limit?: number; offset?: number },
+  params: { reviewer_id: number; phase: string; status?: 'open' | 'all'; hide_lost?: boolean; hide_settled?: boolean; limit?: number; offset?: number },
 ) => api.get<DuplicateCandidates>(`/projects/${pid}/duplicate-candidates`, { params }).then(r => r.data)
 
 export const resolveDuplicates = (

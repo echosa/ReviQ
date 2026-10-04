@@ -480,6 +480,8 @@ export interface DuplicateGroup {
   score: number
   /** Every copy was excluded only as "Duplicate": nothing of the work is left. */
   all_excluded_as_duplicate: boolean
+  /** All but one copy is already excluded as a duplicate: one stays, the rest are dealt with. */
+  settled?: boolean
 }
 
 export interface DuplicateCandidates {
@@ -491,6 +493,8 @@ export interface DuplicateCandidates {
   lost: number
   /** Such groups left out because "hide" was asked for. */
   hidden: number
+  /** Groups left out because all but one copy is already excluded as a duplicate. */
+  hidden_settled: number
   offset: number
   limit: number
   groups: DuplicateGroup[]

@@ -172,6 +172,7 @@ def duplicate_candidates(
     phase: str = "screening",
     status: str = Query("open", pattern="^(open|all)$"),
     hide_lost: bool = False,
+    hide_settled: bool = False,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -183,7 +184,9 @@ def duplicate_candidates(
     group in which every copy was excluded only as "Duplicate"
     (``all_excluded_as_duplicate``), which loses the work entirely and wants a
     second look (``hide_lost`` leaves those out and reports how many in
-    ``hidden``). At screening that check also counts copies ReviQ flagged as
+    ``hidden``). ``hide_settled`` leaves out groups where every copy but one is
+    already excluded as a duplicate: one copy stays, the rest are dealt with
+    (``hidden_settled`` says how many). At screening that check also counts copies ReviQ flagged as
     duplicates, so a work whose original and flagged copy are both out is listed
     too (the flagged copy is shown but cannot be acted on).
     """
@@ -196,10 +199,12 @@ def duplicate_candidates(
         for p in g["papers"]:
             decision, criterion = decided.get(p.id, (None, None))
             members.append({**_paper_view(p), "decision": decision, "criterion_label": criterion})
-        all_dup = all(m["decision"] == "E" and bulk.is_duplicate_criterion(m["criterion_label"])
-                      for m in members)
+        dup_excluded = sum(m["decision"] == "E" and bulk.is_duplicate_criterion(m["criterion_label"])
+                           for m in members)
         return {"papers": members, "reasons": g["reasons"], "score": g["score"],
-                "all_excluded_as_duplicate": all_dup}
+                "all_excluded_as_duplicate": dup_excluded == len(members),
+                # All but one copy is already excluded as a duplicate.
+                "settled": len(members) >= 2 and dup_excluded == len(members) - 1}
 
     groups = []
     already_listed: set[int] = set()       # originals in a group listed below
@@ -230,12 +235,17 @@ def duplicate_candidates(
     if hide_lost:
         hidden = sum(g["all_excluded_as_duplicate"] for g in groups)
         groups = [g for g in groups if not g["all_excluded_as_duplicate"]]
+    hidden_settled = 0
+    if hide_settled:
+        hidden_settled = sum(g["settled"] for g in groups)
+        groups = [g for g in groups if not g["settled"]]
     groups.sort(key=lambda g: min(m["id"] for m in g["papers"]))
     return {"total": len(groups), "offset": offset, "limit": limit,
             # Totals over every group, not just this page.
             "copies": sum(len(g["papers"]) for g in groups),
             "lost": sum(g["all_excluded_as_duplicate"] for g in groups),
             "hidden": hidden,
+            "hidden_settled": hidden_settled,
             "groups": groups[offset: offset + limit]}
 
 

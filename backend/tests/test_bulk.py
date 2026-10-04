@@ -529,3 +529,56 @@ def test_replacing_a_decision_goes_through_the_conflict_state_machine(ctx):
     assert ctx.i.conflicts(ctx.pid, phase="screening") == []
     assert _bulk(ctx, [{"paper_id": a1, "decision": "E"}], replace=True).status_code == 200
     assert [c["paper_id"] for c in ctx.i.conflicts(ctx.pid, phase="screening")] == [a1]
+
+
+def test_hide_settled_leaves_out_groups_where_all_but_one_copy_is_excluded_as_duplicate(ctx):
+    # Three copies of one work (same title, different venues so import keeps them all).
+    ctx.i.import_bib(ctx.pid, [
+        {"citekey": "s1", "title": "Understanding indirect speech acts", "year": 2001, "venue": "V1"},
+        {"citekey": "s2", "title": "Understanding indirect speech acts", "year": 2001, "venue": "V2"},
+        {"citekey": "s3", "title": "Understanding indirect speech acts", "year": 2001, "venue": "V3"},
+    ], db_name="springerlink")
+    by_key = {p["citekey"]: p for p in ctx.i.papers(ctx.pid)}
+    s1, s2, s3 = (by_key[k]["id"] for k in ("s1", "s2", "s3"))
+    get = lambda **kw: ctx.i.client.get(f"/api/projects/{ctx.pid}/duplicate-candidates",
+                                        params={"reviewer_id": ctx.r1["id"], **kw}).json()
+
+    def group_of(body):
+        return next(g for g in body["groups"] if s1 in [m["id"] for m in g["papers"]])
+
+    # one copy excluded as a duplicate: not yet settled
+    ctx.i.decide(ctx.pid, s2, reviewer_id=ctx.r1["id"], decision="E", criterion_label="Duplicate")
+    assert group_of(get())["settled"] is False
+    # two of three excluded as duplicates, the survivor undecided: settled
+    ctx.i.decide(ctx.pid, s3, reviewer_id=ctx.r1["id"], decision="E", criterion_label="Duplicate")
+    shown = get()
+    assert group_of(shown)["settled"] is True
+    assert group_of(shown)["all_excluded_as_duplicate"] is False
+    base = shown["total"]
+
+    hidden = get(hide_settled=True)
+    assert hidden["total"] == base - 1 and hidden["hidden_settled"] == 1
+    assert all(s1 not in [m["id"] for m in g["papers"]] for g in hidden["groups"])
+    assert hidden["copies"] == shown["copies"] - 3                    # the whole group is gone from the totals
+
+    # the survivor can be in any state: included, or excluded for another reason, it is still settled
+    ctx.i.decide(ctx.pid, s1, reviewer_id=ctx.r1["id"], decision="I", criterion_label="Terminology")
+    assert get(status="all", hide_settled=True)["hidden_settled"] == 1
+    ctx.i.decide(ctx.pid, s1, reviewer_id=ctx.r1["id"], decision="E", criterion_label="Off-topic")
+    assert get(status="all", hide_settled=True)["hidden_settled"] == 1
+
+    # all three excluded as duplicates is the other case ("lost"), not settled
+    ctx.i.decide(ctx.pid, s1, reviewer_id=ctx.r1["id"], decision="E", criterion_label="Duplicate")
+    lost = get(status="all")
+    assert group_of(lost)["all_excluded_as_duplicate"] is True and group_of(lost)["settled"] is False
+    assert get(status="all", hide_settled=True)["hidden_settled"] == 0
+    assert get(status="all", hide_lost=True, hide_settled=True)["hidden"] >= 1      # the two filters are independent
+
+
+def test_a_pair_with_one_copy_excluded_as_duplicate_is_settled(ctx):
+    a5, a6 = ctx.p["a5"]["id"], ctx.p["a6"]["id"]
+    ctx.i.decide(ctx.pid, a6, reviewer_id=ctx.r1["id"], decision="E", criterion_label="Duplicate")
+    body = ctx.i.client.get(f"/api/projects/{ctx.pid}/duplicate-candidates",
+                            params={"reviewer_id": ctx.r1["id"], "hide_settled": True}).json()
+    assert body["hidden_settled"] == 1
+    assert a5 not in [m["id"] for g in body["groups"] for m in g["papers"]]

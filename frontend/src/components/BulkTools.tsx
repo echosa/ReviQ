@@ -418,6 +418,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
 
   const [status, setStatus] = useState<'open' | 'all'>('open')
   const [hideLost, setHideLost] = useState(false)
+  const [hideSettled, setHideSettled] = useState(false)
   const [offset, setOffset] = useState(0)
   const [choices, setChoices] = useState<Record<number, Choice | undefined>>({})
   const [criterion, setCriterion] = useState('')
@@ -426,9 +427,10 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
   const [confirming, setConfirming] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['duplicates', pid, phase, reviewerId, status, hideLost, offset],
+    queryKey: ['duplicates', pid, phase, reviewerId, status, hideLost, hideSettled, offset],
     queryFn: () => getDuplicateCandidates(pid, {
-      reviewer_id: reviewerId!, phase, status, hide_lost: hideLost, limit: PAGE, offset,
+      reviewer_id: reviewerId!, phase, status, hide_lost: hideLost, hide_settled: hideSettled,
+      limit: PAGE, offset,
     }),
     enabled: reviewerId !== null,
   })
@@ -501,6 +503,11 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
               onChange={e => { setHideLost(e.target.checked); setOffset(0); setChoices({}) }} />
             Hide groups where every copy is already excluded as a duplicate
           </label>
+          <label className="flex items-center gap-2 text-xs text-ink pb-2">
+            <input type="checkbox" checked={hideSettled}
+              onChange={e => { setHideSettled(e.target.checked); setOffset(0); setChoices({}) }} />
+            Hide groups where all but one copy is already excluded as a duplicate
+          </label>
           <div>
             <label className="block text-2xs font-semibold text-ink-muted uppercase tracking-label mb-1">Exclude as</label>
             <select className="select" aria-label="Exclusion criterion" value={chosenCriterion}
@@ -521,6 +528,7 @@ export function DuplicatesView({ pid, phase }: { pid: number; phase: BulkPhase }
             {status === 'open' ? ' need a decision' : ' in total'}
             {data.lost > 0 && <> · <strong className="text-exclude">{data.lost.toLocaleString()}</strong> where every copy is already excluded as a duplicate</>}
             {data.hidden > 0 && <> · {data.hidden.toLocaleString()} such {data.hidden === 1 ? 'group' : 'groups'} hidden</>}
+            {data.hidden_settled > 0 && <> · {data.hidden_settled.toLocaleString()} settled {data.hidden_settled === 1 ? 'group' : 'groups'} hidden</>}
           </p>
         )}
       </Card>
