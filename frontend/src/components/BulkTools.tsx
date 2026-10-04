@@ -30,6 +30,18 @@ const STATUS_LABELS: Record<BulkStatus, string> = {
 }
 const STATUS_ORDER: BulkStatus[] = ['undecided', 'I', 'E', 'U']
 
+/** How many matches a preview lists at a time (the server allows up to 1,000). */
+const PAGE_SIZES = [50, 100, 200, 500, 1000]
+const DEFAULT_PAGE_SIZE = 200
+const PAGE_SIZE_KEY = 'reviq_bulk_page_size'
+
+function readPageSize(): number {
+  try {
+    const n = parseInt(localStorage.getItem(PAGE_SIZE_KEY) ?? '', 10)
+    return PAGE_SIZES.includes(n) ? n : DEFAULT_PAGE_SIZE
+  } catch { return DEFAULT_PAGE_SIZE }          // storage can be blocked; the choice just isn't remembered
+}
+
 /** "undecided", "undecided and included", "all of your" — for a heading. */
 function statusPhrase(statuses: BulkStatus[]): string {
   if (statuses.length === STATUS_ORDER.length) return 'of your'
@@ -115,6 +127,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   // The rules the shown preview was made with. "Apply to all matches" re-runs these,
   // not whatever the form says by now.
   const [previewRules, setPreviewRules] = useState<BulkRules | null>(null)
+  const [pageSize, setPageSize] = useState<number>(readPageSize)
   const resultsRef = useRef<HTMLDivElement>(null)
   // Highlights follow the rules the shown preview was made with, not the form
   // as it is edited afterwards.
@@ -160,7 +173,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
     mutationFn: () => {
       const rules = buildRules(form)
       const wanted = STATUS_ORDER.filter(s => statuses.has(s))
-      return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, statuses: wanted, limit: 200 })
+      return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, statuses: wanted, limit: pageSize })
         .then(r => ({ r, hl: buildHighlighters(rules), wanted, rules }))
     },
     onSuccess: ({ r, hl, wanted, rules }) => {
@@ -168,6 +181,21 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
     },
     onError: e => { setResult(null); setErrors(apiErrors(e)) },
   })
+
+  // Changing the page size reloads the preview that is on screen (its own rules and
+  // search, not the form as edited since), so the new size shows straight away.
+  // Unchecked records are checked again, as with any new preview.
+  const resize = useMutation({
+    mutationFn: (limit: number) => matchUndecided(pid, {
+      reviewer_id: reviewerId!, phase, rules: previewRules!, statuses: searched, limit }),
+    onSuccess: r => { setResult(r); setChecked(new Set(r.papers.map(p => p.id))); setErrors([]) },
+    onError: e => setErrors(apiErrors(e)),
+  })
+  const changePageSize = (n: number) => {
+    setPageSize(n)
+    try { localStorage.setItem(PAGE_SIZE_KEY, String(n)) } catch { /* not remembered */ }
+    if (result && previewRules) resize.mutate(n)
+  }
 
   const apply = useMutation({
     mutationFn: () => applyBulkDecisions(pid, {
@@ -365,6 +393,15 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
         <Card>
           <CardHeader
             title={`${result.matched.toLocaleString()} of ${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${noun.many} match`} />
+          <div className="flex items-center gap-2 mb-3 text-xs text-ink-muted">
+            <label htmlFor="bulk-page-size">Show</label>
+            <select id="bulk-page-size" className="select !w-auto !py-1" aria-label="Results per page"
+              value={pageSize} disabled={resize.isPending}
+              onChange={e => changePageSize(parseInt(e.target.value, 10))}>
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n.toLocaleString()}</option>)}
+            </select>
+            <span>at a time</span>
+          </div>
           {result.matched > result.papers.length && (
             <p className="text-xs text-ink-muted mb-3">
               Showing the first {result.papers.length}. Apply to these, then preview again for the rest —

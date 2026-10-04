@@ -45,6 +45,7 @@ function renderIn(ui: JSX.Element) {
 }
 
 beforeEach(() => {
+  try { localStorage.clear() } catch { /* ignore */ }
   Object.values(api).forEach(f => f.mockReset())
   api.getPapers.mockResolvedValue([])
   api.getReviewers.mockResolvedValue([{ id: 1, role: 'R1', name: 'Alice', project_id: 1 }])
@@ -241,6 +242,75 @@ describe('bulk actions', () => {
     await screen.findByText(/of 40 undecided records match/)
     expect(screen.getByLabelText('Criterion')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeDisabled()
+  })
+
+  describe('page size', () => {
+    const page = (matched: number, shown: BulkPaper[]) => ({
+      candidates: 5000, matched, offset: 0, limit: 200, papers: shown,
+      matched_by_status: { undecided: matched, I: 0, E: 0, U: 0 },
+    })
+
+    async function preview(result: ReturnType<typeof page>, term = 'zebra') {
+      api.matchUndecided.mockResolvedValue(result)
+      renderIn(<BulkView pid={1} phase="screening" />)
+      fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: term } })
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided records match/)
+    }
+
+    it('offers a choice of sizes and starts at 200', async () => {
+      await preview(page(500, [paper(1)]))
+      const sel = screen.getByLabelText('Results per page') as HTMLSelectElement
+      expect(sel.value).toBe('200')
+      expect([...sel.options].map(o => o.value)).toEqual(['50', '100', '200', '500', '1000'])
+      expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({ limit: 200 }))
+    })
+
+    it('reloads the preview on screen at the new size, with the rules it was made with', async () => {
+      await preview(page(500, [paper(1)]))
+      api.matchUndecided.mockResolvedValue(page(500, [paper(1), paper(2), paper(3)]))
+      fireEvent.change(screen.getByLabelText('Title terms'), { target: { value: 'edited afterwards' } })
+      fireEvent.change(screen.getByLabelText('Results per page'), { target: { value: '500' } })
+      await waitFor(() => expect(api.matchUndecided).toHaveBeenCalledTimes(2))
+      const body = api.matchUndecided.mock.calls[1][1]
+      expect(body.limit).toBe(500)
+      expect(body.rules.title_terms).toEqual(['zebra'])                // not the edited form
+      expect(body.statuses).toEqual(['undecided'])
+      expect(await screen.findByText('Paper 3')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Apply to 3 checked' })).toBeInTheDocument()   // all checked again
+    })
+
+    it('is remembered, and used by the next preview', async () => {
+      await preview(page(500, [paper(1)]))
+      api.matchUndecided.mockResolvedValue(page(500, [paper(1)]))
+      fireEvent.change(screen.getByLabelText('Results per page'), { target: { value: '50' } })
+      await waitFor(() => expect(api.matchUndecided).toHaveBeenCalledTimes(2))
+      expect(localStorage.getItem('reviq_bulk_page_size')).toBe('50')
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await waitFor(() => expect(api.matchUndecided).toHaveBeenCalledTimes(3))
+      expect(api.matchUndecided.mock.calls[2][1].limit).toBe(50)
+    })
+
+    it('starts from a remembered size, and ignores a value that is not one of the choices', async () => {
+      localStorage.setItem('reviq_bulk_page_size', '1000')
+      await preview(page(500, [paper(1)]))
+      expect((screen.getByLabelText('Results per page') as HTMLSelectElement).value).toBe('1000')
+      expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({ limit: 1000 }))
+    })
+
+    it('falls back to 200 for a stored value that is not a choice', async () => {
+      localStorage.setItem('reviq_bulk_page_size', '37')
+      await preview(page(500, [paper(1)]))
+      expect((screen.getByLabelText('Results per page') as HTMLSelectElement).value).toBe('200')
+    })
+
+    it('makes "Apply to all" appear or vanish as the size crosses the match count', async () => {
+      await preview(page(300, [paper(1)]))                           // 300 matches, 1 shown
+      expect(screen.getByRole('button', { name: /Apply to all/ })).toBeInTheDocument()
+      api.matchUndecided.mockResolvedValue(page(300, Array.from({ length: 300 }, (_, i) => paper(i + 1))))
+      fireEvent.change(screen.getByLabelText('Results per page'), { target: { value: '500' } })
+      await waitFor(() => expect(screen.queryByRole('button', { name: /Apply to all/ })).toBeNull())
+    })
   })
 
   describe('apply to all matches', () => {
