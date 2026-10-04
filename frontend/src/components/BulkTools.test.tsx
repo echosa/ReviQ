@@ -190,6 +190,28 @@ describe('bulk actions', () => {
     expect([...document.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['fr'])   // not 'en'
   })
 
+  it('has "Title does not contain" beside "Title contains", and it is a rule on its own', async () => {
+    api.matchUndecided.mockResolvedValue({ candidates: 9, matched: 1, offset: 0, limit: 200, papers: [paper(1)],
+      matched_by_status: { undecided: 1, I: 0, E: 0, U: 0 } })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    const contains = await screen.findByLabelText('Title terms')
+    const excludes = screen.getByLabelText('Title excluded terms')
+    // side by side in the form, like the title-or-abstract pair
+    expect(contains.closest('.mb-4')!.nextElementSibling).toBe(excludes.closest('.mb-4'))
+    expect(screen.getByLabelText('Text terms').closest('.mb-4')!.nextElementSibling)
+      .toBe(screen.getByLabelText('Excluded text terms').closest('.mb-4'))
+
+    const preview = screen.getByRole('button', { name: 'Preview matches' })
+    expect(preview).toBeDisabled()
+    fireEvent.change(excludes, { target: { value: 'survey, review' } })
+    expect(preview).toBeEnabled()
+    fireEvent.click(preview)
+    await screen.findByText(/of 9 undecided records match/)
+    expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({
+      rules: expect.objectContaining({ title_excludes: ['survey', 'review'], title_terms: [] }) }))
+    expect(document.querySelectorAll('mark')).toHaveLength(0)       // an absence is not highlighted
+  })
+
   it('cannot preview until a rule is switched on', async () => {
     renderIn(<BulkView pid={1} phase="screening" />)
     const preview = await screen.findByRole('button', { name: 'Preview matches' })

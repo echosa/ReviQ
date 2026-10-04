@@ -50,7 +50,8 @@ Screening and Eligibility each have a **Bulk actions** and a **Duplicates** tab.
 
 **Bulk actions** finds the records that match rules (language code, or any language
 that is known and not English, title
-keyword, year outside a range, venue keyword, title-or-abstract terms, abstract
+keyword or title that does *not* contain one, year outside a range, venue keyword,
+title-or-abstract terms or none of them, abstract
 missing or present, optionally limited to some imports), either all of the rules
 or any of them. By default it searches the records you have not decided yet; you
 can add the ones you have included, excluded or marked uncertain, to look back at

@@ -9,6 +9,7 @@ export interface RuleForm {
   languageBlank: boolean
   languageNonEnglish: boolean
   titleTerms: string
+  titleExcludes: string
   yearMin: string
   yearMax: string
   venueTerms: string
@@ -19,7 +20,7 @@ export interface RuleForm {
 }
 
 export const EMPTY_FORM: RuleForm = {
-  mode: 'all', languageCodes: '', languageBlank: false, languageNonEnglish: false, titleTerms: '',
+  mode: 'all', languageCodes: '', languageBlank: false, languageNonEnglish: false, titleTerms: '', titleExcludes: '',
   yearMin: '', yearMax: '', venueTerms: '', textTerms: '', textExcludes: '', abstract: '', sources: [],
 }
 
@@ -40,6 +41,7 @@ export function buildRules(form: RuleForm): BulkRules {
     language_blank: form.languageBlank,
     language_non_english: form.languageNonEnglish,
     title_terms: splitTerms(form.titleTerms),
+    title_excludes: splitTerms(form.titleExcludes),
     year_min: year(form.yearMin),
     year_max: year(form.yearMax),
     venue_terms: splitTerms(form.venueTerms),
@@ -58,6 +60,7 @@ export function ruleCount(form: RuleForm): number {
     r.language_blank,
     r.language_non_english,
     r.title_terms.length > 0,
+    r.title_excludes.length > 0,
     r.year_min !== null || r.year_max !== null,
     r.venue_terms.length > 0,
     r.text_terms.length > 0,

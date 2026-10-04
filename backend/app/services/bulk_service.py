@@ -121,6 +121,8 @@ class MatchRules(BaseModel):
     # A language was detected and it is not English: every other code at once.
     language_non_english: bool = False
     title_terms: list[str] = Field(default_factory=list)
+    # The partner of title_terms: the title contains none of these (same substring match).
+    title_excludes: list[str] = Field(default_factory=list)
     year_min: Optional[int] = None
     year_max: Optional[int] = None    # "year outside [min, max]"; no year never matches
     venue_terms: list[str] = Field(default_factory=list)
@@ -148,6 +150,9 @@ class MatchRules(BaseModel):
             lo = self.year_min if self.year_min is not None else -10**9
             hi = self.year_max if self.year_max is not None else 10**9
             rules.append(lambda p: p.year is not None and (p.year < lo or p.year > hi))
+        not_in_title = [t.strip().lower() for t in self.title_excludes if t.strip()]
+        if not_in_title:
+            rules.append(lambda p: not any(t in (p.title or "").lower() for t in not_in_title))
         venues = [t.strip().lower() for t in self.venue_terms if t.strip()]
         if venues:
             rules.append(lambda p: any(t in (p.venue or "").lower() for t in venues))

@@ -3,7 +3,7 @@ import type { BulkRules } from '../api/types'
 import { buildHighlighters, hasMatch, splitMatches } from './highlight'
 
 const rules = (over: Partial<BulkRules> = {}): BulkRules => ({
-  mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [], year_min: null,
+  mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [], title_excludes: [], year_min: null,
   year_max: null, venue_terms: [], text_terms: [], text_excludes: [], abstract: null, sources: [],
   ...over,
 })

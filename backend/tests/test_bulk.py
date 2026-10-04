@@ -717,3 +717,42 @@ def test_apply_to_all_goes_through_the_conflict_state_machine(ctx):
         ctx.i.decide(ctx.pid, i, reviewer_id=r2["id"], decision="I")
     assert _all(ctx, {"title_terms": ["zebra"]}, expected=4).status_code == 200      # Alice disagrees
     assert sorted(c["paper_id"] for c in ctx.i.conflicts(ctx.pid, phase="screening")) == sorted(ids)
+
+
+# ── "Title does not contain" ──────────────────────────────────────────────────
+
+def test_title_excludes_keeps_only_records_whose_title_has_none_of_the_terms(ctx):
+    got = set(_ids(_match(ctx, {"title_excludes": ["editorial", "comment"]})))
+    assert got.isdisjoint({ctx.p["a1"]["id"], ctx.p["a4"]["id"]})          # titles with "Editorial" / "Comment"
+    assert {ctx.p["a2"]["id"], ctx.p["a3"]["id"]} <= got
+
+
+def test_title_excludes_is_not_case_sensitive_and_matches_inside_a_word_like_title_contains(ctx):
+    assert ctx.p["a4"]["id"] not in _ids(_match(ctx, {"title_excludes": ["EDITORIAL"]}))
+    # the same substring match as "Title contains": "ial" is inside "Editorial"
+    assert ctx.p["a1"]["id"] not in _ids(_match(ctx, {"title_excludes": ["ial"]}))
+    assert ctx.p["a1"]["id"] in _ids(_match(ctx, {"title_terms": ["ial"]}))
+
+
+def test_title_excludes_does_not_look_at_the_abstract(ctx):
+    paper = ctx.i.session.get(Paper, ctx.p["a2"]["id"])
+    paper.abstract = "A study mentioning a survey of reviewers."
+    ctx.i.session.add(paper)
+    ctx.i.session.commit()
+    assert ctx.p["a2"]["id"] in _ids(_match(ctx, {"title_excludes": ["survey"]}))      # only the title counts
+
+
+def test_title_excludes_pairs_with_title_contains(ctx):
+    both = _ids(_match(ctx, {"title_terms": ["editorial", "comment"], "title_excludes": ["comment"], "mode": "all"}))
+    assert both == [ctx.p["a1"]["id"]]                                        # "Editorial", but not "Comment on the editorial"
+    either = set(_ids(_match(ctx, {"title_terms": ["zzz"], "title_excludes": ["comment"], "mode": "any"})))
+    assert ctx.p["a2"]["id"] in either and ctx.p["a4"]["id"] not in either
+
+
+def test_title_excludes_is_a_rule_on_its_own_and_works_in_apply_to_all(ctx):
+    assert _match(ctx, {"title_excludes": ["editorial"]}).status_code == 200            # not "enable a rule"
+    ids = _many(ctx, 6)
+    r = _all(ctx, {"title_excludes": ["zebra"]}, expected=_match(ctx, {"title_excludes": ["zebra"]}).json()["matched"])
+    assert r.status_code == 200
+    for i in ids:                                                                       # the zebra titles were not touched
+        assert ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{i}/decisions").json()["decisions"] == []

@@ -418,6 +418,7 @@ export interface BulkRules {
   language_blank: boolean
   language_non_english: boolean
   title_terms: string[]
+  title_excludes: string[]
   year_min: number | null
   year_max: number | null
   venue_terms: string[]

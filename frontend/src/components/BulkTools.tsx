@@ -298,6 +298,32 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
         </FormField>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+          <FormField label="Title contains" hint="Comma-separated, not case-sensitive">
+            <input className="input" aria-label="Title terms" value={form.titleTerms}
+              placeholder="editorial, erratum, retracted"
+              onChange={e => set('titleTerms', e.target.value)} />
+          </FormField>
+
+          <FormField label="Title does not contain" hint="Comma-separated, not case-sensitive. Records whose title has any of these are left out">
+            <input className="input" aria-label="Title excluded terms" value={form.titleExcludes}
+              placeholder="survey, review, editorial"
+              onChange={e => set('titleExcludes', e.target.value)} />
+          </FormField>
+
+          <FormField label="Title or abstract contains"
+            hint="Comma-separated. Matches the start of a word: “iron” finds “irony”, not “environment”">
+            <input className="input" aria-label="Text terms" value={form.textTerms}
+              placeholder="sarcas, irony, metaphor"
+              onChange={e => set('textTerms', e.target.value)} />
+          </FormField>
+
+          <FormField label="Title and abstract contain none of"
+            hint="Comma-separated, same word-start matching. Records with any of these are left out">
+            <input className="input" aria-label="Excluded text terms" value={form.textExcludes}
+              placeholder="sarcas, irony, humor"
+              onChange={e => set('textExcludes', e.target.value)} />
+          </FormField>
+
           <FormField label="Language code is" hint="ISO codes, comma-separated: fr, de, es, zh">
             <input className="input" aria-label="Language codes" value={form.languageCodes}
               onChange={e => set('languageCodes', e.target.value)} />
@@ -311,12 +337,6 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
                 onChange={e => set('languageNonEnglish', e.target.checked)} />
               Language is known and is not English (any other code)
             </label>
-          </FormField>
-
-          <FormField label="Title contains" hint="Comma-separated, not case-sensitive">
-            <input className="input" aria-label="Title terms" value={form.titleTerms}
-              placeholder="editorial, erratum, retracted"
-              onChange={e => set('titleTerms', e.target.value)} />
           </FormField>
 
           <FormField label="Year is outside" hint="Records with no year are not matched">
@@ -333,20 +353,6 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
             <input className="input" aria-label="Venue terms" value={form.venueTerms}
               placeholder="workshop, poster"
               onChange={e => set('venueTerms', e.target.value)} />
-          </FormField>
-
-          <FormField label="Title or abstract contains"
-            hint="Comma-separated. Matches the start of a word: “iron” finds “irony”, not “environment”">
-            <input className="input" aria-label="Text terms" value={form.textTerms}
-              placeholder="sarcas, irony, metaphor"
-              onChange={e => set('textTerms', e.target.value)} />
-          </FormField>
-
-          <FormField label="Title and abstract contain none of"
-            hint="Comma-separated, same word-start matching. Records with any of these are left out">
-            <input className="input" aria-label="Excluded text terms" value={form.textExcludes}
-              placeholder="sarcas, irony, humor"
-              onChange={e => set('textExcludes', e.target.value)} />
           </FormField>
 
           <FormField label="Abstract">

@@ -13,7 +13,7 @@ describe('buildRules', () => {
     expect(ruleCount(EMPTY_FORM)).toBe(0)
     const r = buildRules(EMPTY_FORM)
     expect(r).toMatchObject({
-      mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [],
+      mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [], title_excludes: [],
       year_min: null, year_max: null, venue_terms: [], text_terms: [], text_excludes: [],
       abstract: null, sources: [],
     })
@@ -25,6 +25,16 @@ describe('buildRules', () => {
     expect(r.year_min).toBe(2000)
     expect(r.year_max).toBeNull()
     expect(r.abstract).toBe('missing')
+  })
+})
+
+describe('title does not contain', () => {
+  it('is split like the other term lists, and is a rule of its own', () => {
+    const r = buildRules({ ...EMPTY_FORM, titleExcludes: ' survey, Review ,, editorial ' })
+    expect(r.title_excludes).toEqual(['survey', 'Review', 'editorial'])
+    expect(r.title_terms).toEqual([])
+    expect(ruleCount({ ...EMPTY_FORM, titleExcludes: 'survey' })).toBe(1)
+    expect(ruleCount({ ...EMPTY_FORM, titleTerms: 'sarcas', titleExcludes: 'survey' })).toBe(2)
   })
 })
 
