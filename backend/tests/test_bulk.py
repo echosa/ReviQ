@@ -610,3 +610,110 @@ def test_non_english_counts_as_a_rule_on_its_own_and_combines_with_the_others(ct
     assert both == [ctx.p["a2"]["id"]]
     either = set(_ids(_match(ctx, {"language_non_english": True, "year_max": 2000, "mode": "any"})))
     assert {ctx.p["a1"]["id"], ctx.p["a2"]["id"]} <= either                  # a1 by language alone
+
+
+# ── Apply to every match, not just a page ─────────────────────────────────────
+
+def _all(ctx, rules, *, expected, decision="E", criterion="Off-topic", **extra):
+    body = {"reviewer_id": ctx.r1["id"], "phase": "screening", "rules": rules, "decision": decision,
+            "criterion_label": criterion, "expected_matched": expected, **extra}
+    return ctx.i.client.post(f"/api/projects/{ctx.pid}/decisions/bulk-matching", json=body)
+
+
+def _many(ctx, n=30):
+    """n more records, all with 'zebra' in the title, so a rule can match a lot."""
+    ctx.i.import_bib(ctx.pid, [{"citekey": f"z{i}", "title": f"Zebra study number {i}", "year": 2000 + i % 20,
+                                "doi": f"10.9/z{i}", "venue": "ZV"} for i in range(n)], db_name="ieee")
+    return [p["id"] for p in ctx.i.papers(ctx.pid) if p["citekey"].startswith("z")]
+
+
+def test_match_reports_the_breakdown_of_all_matches_not_just_the_page(ctx):
+    ids = _many(ctx)
+    ctx.i.decide(ctx.pid, ids[0], reviewer_id=ctx.r1["id"], decision="E", criterion_label="Off-topic")
+    ctx.i.decide(ctx.pid, ids[1], reviewer_id=ctx.r1["id"], decision="I", criterion_label="Terminology")
+    r = ctx.i.client.post(f"/api/projects/{ctx.pid}/bulk/match", json={
+        "reviewer_id": ctx.r1["id"], "statuses": ["undecided", "I", "E"],
+        "rules": {"title_terms": ["zebra"]}, "limit": 5})
+    body = r.json()
+    assert len(body["papers"]) == 5 and body["matched"] == 30
+    assert body["matched_by_status"] == {"undecided": 28, "I": 1, "E": 1, "U": 0}
+
+
+def test_apply_to_all_matches_decides_every_match_beyond_one_page(ctx):
+    ids = _many(ctx, 30)
+    r = _all(ctx, {"title_terms": ["zebra"]}, expected=30)
+    assert r.status_code == 200
+    assert r.json()["applied"] == 30 and r.json()["replaced"] == 0 and r.json()["skipped"] == 0
+    for i in ids:
+        got = ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{i}/decisions").json()
+        assert got["final_decision"]["decision"] == "E"
+        assert got["decisions"][0]["criterion_label"] == "Off-topic"
+    assert _match(ctx, {"title_terms": ["zebra"]}).json()["matched"] == 0      # all decided now
+
+
+def test_a_stale_preview_applies_nothing(ctx):
+    ids = _many(ctx, 30)
+    ctx.i.decide(ctx.pid, ids[0], reviewer_id=ctx.r1["id"], decision="I")      # one match leaves between preview and apply
+    r = _all(ctx, {"title_terms": ["zebra"]}, expected=30)
+    assert r.status_code == 409
+    assert "29 records match now, not the 30" in r.json()["detail"]["errors"][0]
+    # nothing was applied to the others
+    got = ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{ids[1]}/decisions").json()
+    assert got["decisions"] == []
+
+
+def test_records_the_reviewer_left_out_are_not_touched(ctx):
+    ids = _many(ctx, 30)
+    r = _all(ctx, {"title_terms": ["zebra"]}, expected=30, except_ids=ids[:3])
+    assert r.json()["applied"] == 27 and r.json()["skipped"] == 3
+    for i in ids[:3]:
+        assert ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{i}/decisions").json()["decisions"] == []
+
+
+def test_leaving_everything_out_is_refused(ctx):
+    ids = _many(ctx, 5)
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=5, except_ids=ids).status_code == 422
+
+
+def test_apply_to_all_refuses_decided_matches_unless_replace_is_set(ctx):
+    ids = _many(ctx, 10)
+    ctx.i.decide(ctx.pid, ids[0], reviewer_id=ctx.r1["id"], decision="I", criterion_label="Terminology")
+    rules = {"title_terms": ["zebra"]}
+    r = _all(ctx, rules, expected=10, statuses=["undecided", "I"])
+    assert r.status_code == 409 and "already have a decision" in r.json()["detail"]["errors"][0]
+    ok = _all(ctx, rules, expected=10, statuses=["undecided", "I"], replace=True)
+    assert ok.status_code == 200
+    assert ok.json()["applied"] == 10 and ok.json()["replaced"] == 1
+    assert ok.json()["changes"] == [{"paper_id": ids[0], "previous": "I", "previous_criterion": "Terminology"}]
+    assert ctx.i.client.get(f"/api/projects/{ctx.pid}/papers/{ids[0]}/decisions").json()["final_decision"]["decision"] == "E"
+
+
+def test_apply_to_all_uses_the_same_scope_as_the_preview(ctx):
+    ids = _many(ctx, 6)
+    _flag_duplicate(ctx, "a1")
+    ctx.i.client.post(f"/api/projects/{ctx.pid}/papers/{ids[0]}/decisions", json={
+        "reviewer_id": ctx.r1["id"], "phase": "screening", "decision": "E"})
+    # decided records are outside the default (undecided) scope, so 5 match, not 6
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=6).status_code == 409
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=5).status_code == 200
+    # flagged duplicates are never matched
+    assert _match(ctx, {"title_terms": ["editorial"]}).json()["matched"] == 1   # a4, not the flagged a1
+
+
+def test_apply_to_all_validates_its_inputs(ctx):
+    _many(ctx, 3)
+    assert _all(ctx, {}, expected=3).status_code == 422                                  # no rule
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=3, decision="X").status_code == 422
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=3, statuses=[]).status_code == 422
+    r = ctx.i.client.post(f"/api/projects/{ctx.pid}/decisions/bulk-matching", json={
+        "reviewer_id": 999, "rules": {"title_terms": ["zebra"]}, "decision": "E", "expected_matched": 3})
+    assert r.status_code == 404
+
+
+def test_apply_to_all_goes_through_the_conflict_state_machine(ctx):
+    r2 = ctx.i.add_reviewer(ctx.pid, name="Bob", role="R2")
+    ids = _many(ctx, 4)
+    for i in ids:
+        ctx.i.decide(ctx.pid, i, reviewer_id=r2["id"], decision="I")
+    assert _all(ctx, {"title_terms": ["zebra"]}, expected=4).status_code == 200      # Alice disagrees
+    assert sorted(c["paper_id"] for c in ctx.i.conflicts(ctx.pid, phase="screening")) == sorted(ids)

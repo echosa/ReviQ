@@ -16,6 +16,7 @@ import type { DuplicateGroup, DuplicateMember, BulkPaper } from '../api/types'
 const api = vi.hoisted(() => ({
   matchUndecided: vi.fn(),
   applyBulkDecisions: vi.fn(),
+  applyBulkToMatches: vi.fn(),
   getDuplicateCandidates: vi.fn(),
   resolveDuplicates: vi.fn(),
   getPapers: vi.fn(),
@@ -240,6 +241,105 @@ describe('bulk actions', () => {
     await screen.findByText(/of 40 undecided records match/)
     expect(screen.getByLabelText('Criterion')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Apply to 1 checked' })).toBeDisabled()
+  })
+
+  describe('apply to all matches', () => {
+    const many = (matched: number, shown: BulkPaper[], by: Record<string, number> = {}) => ({
+      candidates: 5000, matched, offset: 0, limit: 200, papers: shown,
+      matched_by_status: { undecided: matched, I: 0, E: 0, U: 0, ...by },
+    })
+
+    async function previewMany(result: ReturnType<typeof many>, term = 'zebra') {
+      api.matchUndecided.mockResolvedValue(result)
+      renderIn(<BulkView pid={1} phase="screening" />)
+      fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: term } })
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided records match/)
+    }
+
+    it('is offered only when there are more matches than are shown', async () => {
+      await previewMany(many(2, [paper(1), paper(2)]))
+      expect(screen.queryByRole('button', { name: /Apply to all/ })).toBeNull()
+    })
+
+    it('needs a criterion, then says how many matches there are and how many were never shown', async () => {
+      await previewMany(many(2012, [paper(1), paper(2), paper(3)]))
+      const all = screen.getByRole('button', { name: 'Apply to all 2,012 matches' })
+      expect(all).toBeDisabled()                                       // no criterion yet
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      expect(all).toBeEnabled()
+      fireEvent.click(all)
+      expect(screen.getByText(/Exclude ALL 2,012 matching records as "Off-topic"\? 2,009 of them are not shown on this page, and you have not seen them\./))
+        .toBeInTheDocument()
+      expect(api.applyBulkToMatches).not.toHaveBeenCalled()             // not until confirmed
+    })
+
+    it('re-runs the rules the preview used, and leaves out what was unchecked', async () => {
+      await previewMany(many(2012, [paper(1), paper(2), paper(3)]))
+      api.applyBulkToMatches.mockResolvedValue({ applied: 2011, replaced: 0, skipped: 1, changes: [] })
+      fireEvent.change(screen.getByLabelText('Title terms'), { target: { value: 'something else entirely' } })   // edited after previewing
+      fireEvent.click(screen.getByLabelText('Include Paper 2 in this action'))                                  // unchecked
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      fireEvent.change(screen.getByLabelText('Rationale'), { target: { value: 'Rule-triaged' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,011 matches' }))
+      expect(screen.getByText(/The 1 you unchecked are left alone\./)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,011' }))
+
+      await waitFor(() => expect(api.applyBulkToMatches).toHaveBeenCalledTimes(1))
+      const body = api.applyBulkToMatches.mock.calls[0][1]
+      expect(body).toMatchObject({
+        reviewer_id: 1, phase: 'screening', statuses: ['undecided'], decision: 'E',
+        criterion_label: 'Off-topic', rationale: 'Rule-triaged', replace: false,
+        expected_matched: 2012, except_ids: [2],
+      })
+      expect(body.rules.title_terms).toEqual(['zebra'])                 // the previewed rules, not the edited form
+      expect(api.applyBulkDecisions).not.toHaveBeenCalled()
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Recorded Exclude for 2,011 records; 1 you unchecked was left alone.')
+    })
+
+    it('asks to replace only when matches already have a decision, and says how many', async () => {
+      api.applyBulkToMatches.mockResolvedValue({ applied: 300, replaced: 120, skipped: 0, changes: [] })
+      api.matchUndecided.mockResolvedValue(many(300, [paper(1), paper(2)], { undecided: 180, I: 70, E: 50 }))
+      renderIn(<BulkView pid={1} phase="screening" />)
+      fireEvent.change(await screen.findByLabelText('Title terms'), { target: { value: 'zebra' } })
+      fireEvent.click(screen.getByLabelText('Included')); fireEvent.click(screen.getByLabelText('Excluded'))
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided, included and excluded records match/)
+
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 300 matches' }))
+      expect(screen.getByText(/120 already have a decision from you \(70 included, 50 excluded\); applying replaces them\./))
+        .toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 300' }))
+      await waitFor(() => expect(api.applyBulkToMatches).toHaveBeenCalled())
+      expect(api.applyBulkToMatches.mock.calls[0][1]).toMatchObject({
+        replace: true, statuses: ['undecided', 'I', 'E'] })
+      expect(await screen.findByRole('status')).toHaveTextContent('replacing 120 earlier decisions')
+    })
+
+    it('shows the server\'s reason when the preview is out of date, and keeps the preview', async () => {
+      await previewMany(many(2012, [paper(1)]))
+      api.applyBulkToMatches.mockRejectedValue(new Error('409'))
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,012 matches' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,012' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('The server said no.')
+      expect(screen.getByRole('button', { name: 'Apply to all 2,012 matches' })).toBeInTheDocument()   // not cleared
+    })
+
+    it('forgets the criterion afterwards, like the other apply', async () => {
+      await previewMany(many(2012, [paper(1)]))
+      api.applyBulkToMatches.mockResolvedValue({ applied: 2012, replaced: 0, skipped: 0, changes: [] })
+      fireEvent.change(screen.getByLabelText('Criterion'), { target: { value: 'Off-topic' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,012 matches' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Apply to all 2,012' }))
+      await screen.findByRole('status')
+      api.matchUndecided.mockResolvedValue(many(2012, [paper(1)]))
+      fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
+      await screen.findByText(/of 5,000 undecided records match/)
+      expect(screen.getByLabelText('Criterion')).toHaveValue('')
+    })
   })
 
   it('will not apply until a criterion is chosen', async () => {

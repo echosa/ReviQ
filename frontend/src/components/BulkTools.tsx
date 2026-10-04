@@ -10,11 +10,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../App'
 import {
-  apiErrors, applyBulkDecisions, getDuplicateCandidates, getExclusionCriteria,
+  apiErrors, applyBulkDecisions, applyBulkToMatches, getDuplicateCandidates, getExclusionCriteria,
   getInclusionCriteria, getPapers, getReviewers, matchUndecided, resolveDuplicates,
 } from '../api/client'
 import type {
-  BulkMatchResult, BulkStatus, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
+  BulkMatchResult, BulkRules, BulkStatus, DuplicateGroup, DuplicateMember, ExclusionCriterion, InclusionCriterion,
 } from '../api/types'
 import { buildRules, criteriaFor, EMPTY_FORM, ruleCount, type RuleForm } from '../utils/bulk'
 import { buildHighlighters, type Highlighters } from '../utils/highlight'
@@ -112,6 +112,9 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const [result, setResult] = useState<BulkMatchResult | null>(null)
   const [statuses, setStatuses] = useState<Set<BulkStatus>>(new Set<BulkStatus>(['undecided']))
   const [searched, setSearched] = useState<BulkStatus[]>(['undecided'])   // what the shown preview searched
+  // The rules the shown preview was made with. "Apply to all matches" re-runs these,
+  // not whatever the form says by now.
+  const [previewRules, setPreviewRules] = useState<BulkRules | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   // Highlights follow the rules the shown preview was made with, not the form
   // as it is edited afterwards.
@@ -122,9 +125,22 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const replacing = (result?.papers ?? []).filter(p => checked.has(p.id) && p.decision)
   const [criterion, setCriterion] = useState('')
   const [rationale, setRationale] = useState('')
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useState<null | 'checked' | 'all'>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [done, setDone] = useState<string | null>(null)
+
+  // "Apply to all matches": every match, including those not on the page, except
+  // the ones unchecked here. How many that is, and how many already have a decision.
+  const unchecked = (result?.papers ?? []).filter(p => !checked.has(p.id))
+  const allTargets = result ? result.matched - unchecked.length : 0
+  const allReplacing: Record<BulkStatus, number> = { undecided: 0, I: 0, E: 0, U: 0 }
+  if (result) {
+    for (const s of STATUS_ORDER) {
+      allReplacing[s] = Math.max(0, (result.matched_by_status?.[s] ?? 0)
+        - unchecked.filter(p => (p.decision ?? 'undecided') === s).length)
+    }
+  }
+  const allReplaceCount = allReplacing.I + allReplacing.E + allReplacing.U
 
   // The sources this phase's records came from, for the scope filter.
   const { data: papers = [] } = useQuery({
@@ -145,10 +161,10 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       const rules = buildRules(form)
       const wanted = STATUS_ORDER.filter(s => statuses.has(s))
       return matchUndecided(pid, { reviewer_id: reviewerId!, phase, rules, statuses: wanted, limit: 200 })
-        .then(r => ({ r, hl: buildHighlighters(rules), wanted }))
+        .then(r => ({ r, hl: buildHighlighters(rules), wanted, rules }))
     },
-    onSuccess: ({ r, hl, wanted }) => {
-      setResult(r); setShown(hl); setSearched(wanted); setChecked(new Set(r.papers.map(p => p.id))); setErrors([])
+    onSuccess: ({ r, hl, wanted, rules }) => {
+      setResult(r); setShown(hl); setSearched(wanted); setPreviewRules(rules); setChecked(new Set(r.papers.map(p => p.id))); setErrors([])
     },
     onError: e => { setResult(null); setErrors(apiErrors(e)) },
   })
@@ -164,15 +180,33 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       replace: replacing.length > 0,
     }),
     onSuccess: r => {
-      setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${counted(r.applied, noun)}` +
+      setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${r.applied.toLocaleString()} ${r.applied === 1 ? noun.one : noun.many}` +
         (r.replaced > 0 ? `, replacing ${r.replaced} earlier ${r.replaced === 1 ? 'decision' : 'decisions'}.` : '.'))
-      setResult(null); setChecked(new Set()); setConfirming(false); setErrors([])
+      setResult(null); setChecked(new Set()); setConfirming(null); setErrors([])
       // Back to "— choose —": a criterion left over from this batch must not be
       // applied to the next one without being chosen again.
       setCriterion('')
       refresh()
     },
-    onError: e => { setConfirming(false); setErrors(apiErrors(e)) },
+    onError: e => { setConfirming(null); setErrors(apiErrors(e)) },
+  })
+
+  const applyAll = useMutation({
+    mutationFn: () => applyBulkToMatches(pid, {
+      reviewer_id: reviewerId!, phase, statuses: searched, rules: previewRules!,
+      decision, criterion_label: criterion || undefined, rationale: rationale || undefined,
+      replace: allReplaceCount > 0, expected_matched: result!.matched,
+      except_ids: unchecked.map(p => p.id),
+    }),
+    onSuccess: r => {
+      setDone(`Recorded ${decision === 'E' ? 'Exclude' : 'Include'} for ${r.applied.toLocaleString()} ${r.applied === 1 ? noun.one : noun.many}` +
+        (r.replaced > 0 ? `, replacing ${r.replaced} earlier ${r.replaced === 1 ? 'decision' : 'decisions'}` : '') +
+        (r.skipped > 0 ? `; ${r.skipped} you unchecked ${r.skipped === 1 ? 'was' : 'were'} left alone` : '') + '.')
+      setResult(null); setChecked(new Set()); setConfirming(null); setErrors([])
+      setCriterion('')
+      refresh()
+    },
+    onError: e => { setConfirming(null); setErrors(apiErrors(e)) },
   })
 
   if (reviewerId === null) {
@@ -182,6 +216,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
   const list = decision === 'I' ? criteria.inclusion : criteria.exclusion
   const needsCriterion = list.length > 0
   const canApply = checked.size > 0 && (!needsCriterion || criterion !== '')
+  const canApplyAll = allTargets > 0 && previewRules !== null && (!needsCriterion || criterion !== '')
   const rules = ruleCount(form)
 
   const toggle = (id: number) => setChecked(prev => {
@@ -332,7 +367,8 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
             title={`${result.matched.toLocaleString()} of ${result.candidates.toLocaleString()} ${statusPhrase(searched)} ${noun.many} match`} />
           {result.matched > result.papers.length && (
             <p className="text-xs text-ink-muted mb-3">
-              Showing the first {result.papers.length}. Apply to these, then preview again for the rest.
+              Showing the first {result.papers.length}. Apply to these, then preview again for the rest —
+              or use "Apply to all {result.matched.toLocaleString()} matches" to include the ones not shown.
             </p>
           )}
 
@@ -360,10 +396,17 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               <input className="input" aria-label="Rationale" value={rationale}
                 onChange={e => setRationale(e.target.value)} />
             </div>
-            <button className="btn-primary" disabled={!canApply || apply.isPending}
-              onClick={() => setConfirming(true)}>
+            <button className="btn-primary" disabled={!canApply || apply.isPending || applyAll.isPending}
+              onClick={() => setConfirming('checked')}>
               Apply to {checked.size} checked
             </button>
+            {result.matched > result.papers.length && (
+              <button className="btn-secondary" disabled={!canApplyAll || apply.isPending || applyAll.isPending}
+                title="Every match, including those not shown on this page"
+                onClick={() => setConfirming('all')}>
+                Apply to all {allTargets.toLocaleString()} matches
+              </button>
+            )}
           </div>
 
           <div className="flex gap-3 mb-2 text-xs">
@@ -396,7 +439,7 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
       )}
       </div>
 
-      {confirming && (
+      {confirming === 'checked' && (
         <ConfirmDialog
           confirmLabel="Apply"
           message={`${decision === 'E' ? 'Exclude' : 'Include'} ${counted(checked.size, noun)}${
@@ -407,7 +450,25 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               }); applying replaces ${replacing.length === 1 ? 'it' : 'them'}.`
             : 'Each can still be changed from the list afterwards.')}
           onConfirm={() => apply.mutate()}
-          onCancel={() => setConfirming(false)}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+      {confirming === 'all' && result && (
+        <ConfirmDialog
+          confirmLabel={`Apply to all ${allTargets.toLocaleString()}`}
+          message={`${decision === 'E' ? 'Exclude' : 'Include'} ALL ${allTargets.toLocaleString()} matching ${noun.many}${
+            criterion ? ` as "${criterion}"` : ''}? ` +
+            `${(allTargets - checked.size).toLocaleString()} of them are not shown on this page, and you have not seen them. ` +
+            (unchecked.length > 0 ? `The ${unchecked.length} you unchecked are left alone. ` : '') +
+            (allReplaceCount > 0
+              ? `${allReplaceCount.toLocaleString()} already have a decision from you (${
+                  STATUS_ORDER.filter(s => s !== 'undecided').filter(s => allReplacing[s] > 0)
+                    .map(s => `${allReplacing[s].toLocaleString()} ${STATUS_LABELS[s].toLowerCase()}`).join(', ')
+                }); applying replaces them. `
+              : '') +
+            'If the number of matches has changed since you previewed, nothing is applied.'}
+          onConfirm={() => applyAll.mutate()}
+          onCancel={() => setConfirming(null)}
         />
       )}
     </div>

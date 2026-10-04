@@ -451,6 +451,8 @@ export interface BulkPaper {
 export interface BulkMatchResult {
   candidates: number
   matched: number
+  /** Of every match, not just the page: how many have each decision from this reviewer now. */
+  matched_by_status: Record<BulkStatus, number>
   offset: number
   limit: number
   papers: BulkPaper[]
@@ -461,6 +463,11 @@ export interface BulkApplyResult {
   /** How many of them replaced a decision this reviewer had already made. */
   replaced: number
   changes: { paper_id: number; previous: string; previous_criterion: string | null }[]
+}
+
+export interface BulkApplyMatchesResult extends BulkApplyResult {
+  /** Matches the reviewer unchecked, left alone. */
+  skipped: number
 }
 
 export interface BulkDecisionItem {

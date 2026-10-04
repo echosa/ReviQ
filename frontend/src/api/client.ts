@@ -6,7 +6,7 @@ import type {
   Paper, KappaResult, ImportStats, ConflictLog, ExportStats,
   SnowballingIteration, QASummary, ExtractionField, ExtractionSummary,
   GreyRecord, GreyImportResult, Retrieval,
-  BulkRules, BulkMatchResult, BulkDecisionItem, BulkStatus, BulkApplyResult,
+  BulkRules, BulkMatchResult, BulkDecisionItem, BulkStatus, BulkApplyResult, BulkApplyMatchesResult,
   DuplicateCandidates, DuplicateResolution, DuplicateResolveResult,
 } from './types'
 
@@ -358,6 +358,18 @@ export const applyBulkDecisions = (
   pid: number,
   body: { reviewer_id: number; phase: string; decisions: BulkDecisionItem[]; replace?: boolean },
 ) => api.post<BulkApplyResult>(`/projects/${pid}/decisions/bulk`, body).then(r => r.data)
+
+/** Apply a decision to every record the rules match, not just a previewed page.
+ *  The server finds the matches itself and refuses if their number is no longer
+ *  `expected_matched`. */
+export const applyBulkToMatches = (
+  pid: number,
+  body: {
+    reviewer_id: number; phase: string; statuses: BulkStatus[]; rules: BulkRules
+    decision: 'I' | 'E' | 'U'; criterion_label?: string; rationale?: string
+    replace?: boolean; expected_matched: number; except_ids?: number[]
+  },
+) => api.post<BulkApplyMatchesResult>(`/projects/${pid}/decisions/bulk-matching`, body).then(r => r.data)
 
 export const getDuplicateCandidates = (
   pid: number,

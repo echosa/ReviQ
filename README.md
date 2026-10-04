@@ -60,6 +60,13 @@ decision you have already made is only replaced when the checked records include
 one, the confirmation says how many, and the server reports what each was
 before. A request is applied whole or not at all.
 
+A preview shows 200 matches at a time. **Apply to all N matches** applies the
+decision to every match, including those not shown. The server re-runs the
+preview's rules itself, leaves out any record you unchecked, and refuses (applying
+nothing) if the number of matches is no longer the number you previewed. The
+confirmation says how many were never shown and how many existing decisions it
+would replace.
+
 **Duplicates** lists records that look like the same work but were not caught at
 import, typically a copy with no DOI whose title carries a venue prefix. You
 choose the copy that stays; the others are excluded as duplicates, with the kept

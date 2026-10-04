@@ -81,9 +81,14 @@ def match_undecided(project_id: int, body: MatchBody, session: Session = Depends
         decision, criterion = decided.get(p.id, (None, None))
         return {**_paper_view(p), "decision": decision, "criterion_label": criterion}
 
+    by_status = {s: 0 for s in bulk.STATUSES}
+    for p in matched:
+        by_status[decided[p.id][0] if p.id in decided else "undecided"] += 1
     return {
         "candidates": len(candidates),
         "matched": len(matched),
+        # Of all the matches (not just this page): how many have each decision now.
+        "matched_by_status": by_status,
         "offset": body.offset,
         "limit": body.limit,
         "papers": [view(p) for p in page],
@@ -161,6 +166,81 @@ def apply_bulk_decisions(project_id: int, body: BulkBody, session: Session = Dep
         sync_decision_state(session, project_id, item.paper_id, body.phase)
     session.commit()
     return {"applied": len(body.decisions), "replaced": len(changes), "changes": changes}
+
+
+class ApplyMatchingBody(BaseModel):
+    reviewer_id: int
+    phase: str = "screening"
+    statuses: list[str] = Field(default_factory=lambda: ["undecided"])
+    rules: bulk.MatchRules
+    decision: str
+    criterion_label: Optional[str] = None
+    rationale: Optional[str] = None
+    replace: bool = False
+    # How many records matched when the reviewer previewed. If the rules match a
+    # different number now, nothing is applied: the preview is out of date.
+    expected_matched: int
+    # Records the reviewer unchecked in the preview, left alone.
+    except_ids: list[int] = Field(default_factory=list)
+
+
+MAX_MATCHING = 20000
+
+
+@router.post("/projects/{project_id}/decisions/bulk-matching")
+def apply_to_all_matches(project_id: int, body: ApplyMatchingBody, session: Session = Depends(get_session)):
+    """Record this reviewer's decision on *every* record the rules match, not just
+    the page a preview shows.
+
+    The server finds the matches itself, with the same rules and search scope as
+    ``/bulk/match``, so no list of ids travels from the browser. It refuses if the
+    number of matches is not ``expected_matched`` (the preview is stale), if a
+    match already has a decision and ``replace`` is not set, or if there are more
+    than the cap. All or nothing, through the shared decision state machine.
+    """
+    _scope(project_id, body.reviewer_id, body.phase, session)
+    if body.decision not in DECISIONS:
+        _fail(["decision must be one of I, E, U."])
+    if not body.rules.predicates():
+        _fail(["Enable at least one rule."])
+    if body.rules.mode not in ("all", "any"):
+        _fail(["mode must be 'all' or 'any'."])
+    if not body.statuses or any(s not in bulk.STATUSES for s in body.statuses):
+        _fail([f"statuses must be a non-empty subset of {', '.join(bulk.STATUSES)}."])
+
+    candidates, decided = bulk.papers_by_status(
+        session, project_id, body.phase, body.reviewer_id, body.statuses,
+        body.rules.sources or None)
+    matched = bulk.match_papers(candidates, body.rules)
+    if len(matched) != body.expected_matched:
+        _fail([f"{len(matched)} records match now, not the {body.expected_matched} you previewed. "
+               "Preview again before applying."], 409)
+
+    skip = set(body.except_ids)
+    targets = [p for p in matched if p.id not in skip]
+    if not targets:
+        _fail(["Nothing to apply: every match was left out."])
+    if len(targets) > MAX_MATCHING:
+        _fail([f"{len(targets)} records is more than the {MAX_MATCHING} allowed at once. Narrow the rules."])
+    already = [p for p in targets if p.id in decided]
+    if already and not body.replace:
+        _fail([f"{len(already)} of the matches already have a decision from you "
+               "(ask to replace decisions to change them)."], 409)
+
+    changes = [{"paper_id": p.id, "previous": decided[p.id][0], "previous_criterion": decided[p.id][1]}
+               for p in already]
+    for p in targets:
+        record_reviewer_decision(
+            session, project_id=project_id, paper_id=p.id, reviewer_id=body.reviewer_id,
+            phase=body.phase, decision=body.decision, criterion_label=body.criterion_label,
+            rationale=body.rationale,
+        )
+    session.commit()
+    for p in targets:
+        sync_decision_state(session, project_id, p.id, body.phase)
+    session.commit()
+    return {"applied": len(targets), "replaced": len(changes), "skipped": len(matched) - len(targets),
+            "changes": changes}
 
 
 # ── Duplicate review ──────────────────────────────────────────────────────────
