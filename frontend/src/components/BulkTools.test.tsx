@@ -262,7 +262,7 @@ describe('bulk actions', () => {
       await preview(page(500, [paper(1)]))
       const sel = screen.getByLabelText('Results per page') as HTMLSelectElement
       expect(sel.value).toBe('200')
-      expect([...sel.options].map(o => o.value)).toEqual(['50', '100', '200', '500', '1000'])
+      expect([...sel.options].map(o => o.value)).toEqual(['10', '20', '50', '100', '200', '500', '1000'])
       expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({ limit: 200 }))
     })
 
@@ -289,6 +289,16 @@ describe('bulk actions', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Preview matches' }))
       await waitFor(() => expect(api.matchUndecided).toHaveBeenCalledTimes(3))
       expect(api.matchUndecided.mock.calls[2][1].limit).toBe(50)
+    })
+
+    it('can be as small as 10 or 20, for a careful read of a few at a time', async () => {
+      await preview(page(500, [paper(1)]))
+      api.matchUndecided.mockResolvedValue(page(500, [paper(1)]))
+      fireEvent.change(screen.getByLabelText('Results per page'), { target: { value: '10' } })
+      await waitFor(() => expect(api.matchUndecided.mock.calls[1][1].limit).toBe(10))
+      fireEvent.change(screen.getByLabelText('Results per page'), { target: { value: '20' } })
+      await waitFor(() => expect(api.matchUndecided.mock.calls[2][1].limit).toBe(20))
+      expect(localStorage.getItem('reviq_bulk_page_size')).toBe('20')
     })
 
     it('starts from a remembered size, and ignores a value that is not one of the choices', async () => {

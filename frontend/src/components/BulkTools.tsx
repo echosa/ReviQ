@@ -31,7 +31,7 @@ const STATUS_LABELS: Record<BulkStatus, string> = {
 const STATUS_ORDER: BulkStatus[] = ['undecided', 'I', 'E', 'U']
 
 /** How many matches a preview lists at a time (the server allows up to 1,000). */
-const PAGE_SIZES = [50, 100, 200, 500, 1000]
+const PAGE_SIZES = [10, 20, 50, 100, 200, 500, 1000]
 const DEFAULT_PAGE_SIZE = 200
 const PAGE_SIZE_KEY = 'reviq_bulk_page_size'
 
