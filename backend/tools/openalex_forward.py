@@ -11,6 +11,11 @@ against OpenAlex and writes a BibTeX file for the iteration's "Import BibTeX".
        python3 backend/tools/openalex_forward.py --project 1 \\
            --sources snowballing:1,snowballing:2 --out iteration4.bib
 
+  To snowball only from the core papers (and so not keep widening the review
+  through background reading), add --criterion Core (papers you included under
+  that criterion) and/or --require-terms sarcas,iron,satir (papers whose title or
+  abstract mention a core term).
+
   3. In ReviQ, open that iteration and "Import BibTeX" with the file.
 
 The start set is the papers included at full-text (and at screening) from the
@@ -163,14 +168,45 @@ def reviq(client: Client, base: str, path: str) -> list | dict:
     return client.get(base.rstrip("/") + "/api" + path)
 
 
-def start_set(client: Client, base: str, project: int, sources: list[str]) -> tuple[list[dict], set[str], set[str]]:
+def term_pattern(terms: Iterable[str]) -> Optional["re.Pattern[str]"]:
+    """Case-insensitive, matched at the start of a word: "iron" finds "irony" but
+    not "environment"."""
+    cleaned = [t.strip() for t in terms if t.strip()]
+    if not cleaned:
+        return None
+    return re.compile("|".join(rf"(?<!\w){re.escape(t)}" for t in cleaned), re.IGNORECASE)
+
+
+def is_core(paper: dict, criteria: set[str], pattern: Optional["re.Pattern[str]"]) -> bool:
+    """Whether a paper counts as core under the filters given. With no filter,
+    everything does. With both, it must satisfy both.
+
+    * criteria: a reviewer included it at full-text under one of these labels.
+    * pattern: its title or abstract mentions one of the core terms."""
+    if criteria:
+        labels = {c.lower() for c in criteria}
+        if not any(d.get("decision") == "I" and (d.get("criterion_label") or "").lower() in labels
+                   for d in paper.get("decisions", [])):
+            return False
+    if pattern is not None and not pattern.search(f"{paper.get('title') or ''} {paper.get('abstract') or ''}"):
+        return False
+    return True
+
+
+def start_set(client: Client, base: str, project: int, sources: list[str],
+              criteria: Optional[set[str]] = None, terms: Optional[list[str]] = None,
+              ) -> tuple[list[dict], set[str], set[str]]:
     """(start papers, DOIs the project has, normalized titles the project has).
-    Start = included at full-text and at screening, from the given sources."""
+    Start = included at full-text and at screening, from the given sources, and
+    (if asked) core: see ``is_core``."""
     ft = reviq(client, base, f"/projects/{project}/papers?phase=full-text&dedup_status=original")
     sc = reviq(client, base, f"/projects/{project}/papers?phase=screening")
     decision = lambda p: (p.get("final_decision") or {}).get("decision")
     screened_in = {p["id"] for p in sc if decision(p) == "I" and p["dedup_status"] == "original"}
     start = [p for p in ft if decision(p) == "I" and p["id"] in screened_in and p["source"] in sources]
+    pattern = term_pattern(terms or [])
+    if criteria or pattern is not None:
+        start = [p for p in start if is_core(p, criteria or set(), pattern)]
     known_dois = {norm_doi(p["doi"]) for p in sc if p.get("doi")}
     known_titles = {norm_title(p["title"]) for p in sc}
     return start, known_dois, known_titles
@@ -259,6 +295,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--project", type=int, required=True, help="ReviQ project id")
     ap.add_argument("--sources", required=True,
                     help="comma-separated sources that make up the start set, e.g. snowballing:1,snowballing:2")
+    ap.add_argument("--criterion",
+                    help="only snowball from papers included at full-text under this criterion label "
+                         "(comma-separated for several), e.g. Core")
+    ap.add_argument("--require-terms",
+                    help="only snowball from papers whose title or abstract mention one of these terms "
+                         "(comma-separated, matched at the start of a word), e.g. sarcas,iron,satir")
     ap.add_argument("--out", required=True, help="BibTeX file to write")
     ap.add_argument("--reviq", default=REVIQ_DEFAULT, help=f"ReviQ URL (default {REVIQ_DEFAULT})")
     ap.add_argument("--mailto", help="optional e-mail for OpenAlex's polite pool (never sent unless given)")
@@ -274,11 +316,25 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     client = Client(mailto=args.mailto, api_key=os.environ.get("OPENALEX_API_KEY"))
     sources = [s.strip() for s in args.sources.split(",") if s.strip()]
-    start, known_dois, known_titles = start_set(client, args.reviq, args.project, sources)
+    criteria = {c.strip() for c in (args.criterion or "").split(",") if c.strip()}
+    terms = [t.strip() for t in (args.require_terms or "").split(",") if t.strip()]
+    everyone, _, _ = start_set(client, args.reviq, args.project, sources)
+    start, known_dois, known_titles = start_set(client, args.reviq, args.project, sources, criteria, terms)
     if args.limit_start:
         start = start[: args.limit_start]
-    print(f"Start set: {len(start)} papers included from {', '.join(sources)}")
+    filters = "".join([f"; criterion {', '.join(sorted(criteria))}" if criteria else "",
+                       f"; mentioning {', '.join(terms)}" if terms else ""])
+    print(f"Start set: {len(start)} papers included from {', '.join(sources)}{filters}"
+          + (f" (of {len(everyone)} included from those sources)" if filters else ""))
     if not start:
+        if criteria and everyone:
+            labels = {}
+            for p in everyone:
+                for d in p.get("decisions", []):
+                    if d.get("decision") == "I":
+                        labels[d.get("criterion_label") or "(none)"] = labels.get(d.get("criterion_label") or "(none)", 0) + 1
+            print("  No included paper has that criterion. The labels on included papers are: "
+                  + ", ".join(f"{k} ({v})" for k, v in sorted(labels.items(), key=lambda kv: -kv[1])))
         return 1
 
     found, unresolved = resolve(client, start)

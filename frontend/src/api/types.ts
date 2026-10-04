@@ -517,3 +517,28 @@ export interface DuplicateResolveResult {
   applied: number
   changes: { paper_id: number; previous: string | null; previous_criterion: string | null }[]
 }
+
+// ── Snowballing yield ─────────────────────────────────────────────────────────
+
+export interface SnowballYield {
+  iteration_number: number
+  iteration_type: string
+  retrieved: number
+  originals: number
+  duplicates: number
+  duplicate_pct: number | null
+  screened: number
+  screening_included: number
+  fulltext_decided: number
+  fulltext_included: number
+  /** Full-text includes per original record; null until full-text has started. */
+  yield_pct: number | null
+  /** Records this iteration found that the project already had from elsewhere... */
+  refound_known: number
+  /** ...and how many of those had passed screening. */
+  refound_included: number
+  refound_included_pct: number | null
+  /** Full-text includes whose title mentions a core term (null if no terms were given). */
+  core_in_title: number | null
+  core_in_title_pct: number | null
+}

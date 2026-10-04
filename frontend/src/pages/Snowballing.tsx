@@ -18,6 +18,7 @@ import {
   DecisionBadge, EmptyState, Badge,
 } from '../components/ui'
 import AbstractToggle, { AbstractList } from '../components/AbstractToggle'
+import YieldPanel from '../components/YieldPanel'
 import type { SnowballingIteration, Paper } from '../api/types'
 import { formatAuthors, ownDecision, consensusDecision, hasOpenConflict } from '../utils'
 import { PHASE_NOUN } from '../utils/vocabulary'
@@ -208,6 +209,9 @@ function IterationsView({ pid }: { pid: number }) {
           </table>
         </Card>
       )}
+
+      {/* Is snowballing still finding things? */}
+      {iterations.length > 0 && <YieldPanel pid={pid} />}
 
       {/* Header row */}
       <div className="flex items-center justify-between">

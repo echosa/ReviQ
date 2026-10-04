@@ -7,7 +7,7 @@ import type {
   SnowballingIteration, QASummary, ExtractionField, ExtractionSummary,
   GreyRecord, GreyImportResult, Retrieval,
   BulkRules, BulkMatchResult, BulkDecisionItem, BulkStatus, BulkApplyResult, BulkApplyMatchesResult,
-  DuplicateCandidates, DuplicateResolution, DuplicateResolveResult,
+  DuplicateCandidates, DuplicateResolution, DuplicateResolveResult, SnowballYield,
 } from './types'
 
 const api = axios.create({ baseURL: '/api' })
@@ -204,6 +204,10 @@ export const updatePaper = (pid: number, paperId: number, data: { full_text_url?
 
 export const getSnowballingIterations = (pid: number) =>
   api.get<SnowballingIteration[]>(`/projects/${pid}/snowballing`).then(r => r.data)
+
+export const getSnowballingYield = (pid: number, coreTerms = '') =>
+  api.get<SnowballYield[]>(`/projects/${pid}/snowballing/yield`, { params: coreTerms.trim() ? { core_terms: coreTerms } : {} })
+    .then(r => r.data)
 
 export const createSnowballingIteration = (pid: number, iteration_type: string) =>
   api.post<SnowballingIteration>(`/projects/${pid}/snowballing`, { iteration_type }).then(r => r.data)

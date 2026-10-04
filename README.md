@@ -101,6 +101,18 @@ it if you prefer. `--limit-start 5` makes a quick trial run. Nothing about you i
 sent to OpenAlex unless you pass `--mailto`. The run prints the line to quote in
 a methods section (papers searched, tool, date).
 
+Snowballing has no natural end, so two things help you stop. The **Yield and
+saturation** panel on the Snowballing page shows, per iteration, how many records
+it brought, how many were duplicates, how many got through screening and
+full-text, the **yield** (full-text includes per new record), and the share of the
+papers it *re-found* that you had already included. A falling yield and a rising
+re-found share both mean the search is running out; a **core in title** column
+(for terms you choose) shows whether included work is drifting off topic. To stop
+background reading from widening the search, the tool can snowball only from core
+papers: `--criterion Core` (papers included under that criterion label) and/or
+`--require-terms sarcas,iron,satir` (papers whose title or abstract mention a core
+term). If a criterion matches nothing, the run lists the labels that do exist.
+
 Collaboration is file-based: reviewers export decisions as JSON, and a whole
 grey corpus travels the same way — shared however you like, imported on the
 other end.

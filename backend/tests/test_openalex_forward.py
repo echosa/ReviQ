@@ -220,3 +220,93 @@ def test_main_stops_when_there_is_no_start_set(monkeypatch, capsys, tmp_path):
     fake = FakeClient({"phase=full-text": [], "phase=screening": []}, None)
     monkeypatch.setattr(fw, "Client", lambda **kw: fake)
     assert fw.main(["--project", "1", "--sources", "snowballing:1", "--out", str(tmp_path / "x.bib")]) == 1
+
+
+# ── snowballing only from core papers ─────────────────────────────────────────
+
+def _paper_with(i, src, title, label, abstract="", *, fin="I", extra=()):
+    ds = [{"decision": "I", "criterion_label": label, "reviewer_id": 1}, *extra]
+    return {"id": i, "source": src, "title": title, "doi": f"10.1/{i}", "year": 2020,
+            "abstract": abstract, "dedup_status": "original", "decisions": ds,
+            "final_decision": {"decision": fin}}
+
+
+def _core_world():
+    ft = [_paper_with(1, "snowballing:1", "Sarcasm detection with BERT", "Core"),
+          _paper_with(2, "snowballing:1", "A survey of sentiment analysis", "Terminology",
+                      abstract="We review methods, including irony and sarcasm."),
+          _paper_with(3, "snowballing:2", "Cooking in the environment", "Terminology"),
+          _paper_with(4, "snowballing:2", "Satire in the news", "Core")]
+    sc = [dict(p, final_decision={"decision": "I"}) for p in ft]
+    return {"phase=full-text": ft, "phase=screening": sc}
+
+
+def test_core_by_criterion_label_is_case_insensitive_and_needs_an_include():
+    assert fw.is_core({"decisions": [{"decision": "I", "criterion_label": "Core"}]}, {"core"}, None)
+    assert not fw.is_core({"decisions": [{"decision": "I", "criterion_label": "Terminology"}]}, {"Core"}, None)
+    # an exclusion under that label is not an inclusion
+    assert not fw.is_core({"decisions": [{"decision": "E", "criterion_label": "Core"}]}, {"Core"}, None)
+    assert not fw.is_core({"decisions": []}, {"Core"}, None)
+
+
+def test_core_by_terms_reads_title_and_abstract_from_the_start_of_a_word():
+    pat = fw.term_pattern(["iron", "sarcas"])
+    assert fw.is_core({"title": "Irony in tweets"}, set(), pat)
+    assert fw.is_core({"title": "A survey", "abstract": "It covers sarcasm."}, set(), pat)
+    assert not fw.is_core({"title": "The environment", "abstract": "Nothing here."}, set(), pat)
+    assert fw.term_pattern(["", "  "]) is None
+
+
+def test_no_filter_means_every_paper_is_core():
+    assert fw.is_core({"title": "Anything", "decisions": []}, set(), None)
+
+
+def test_both_filters_must_hold():
+    p = {"title": "Sarcasm detection", "decisions": [{"decision": "I", "criterion_label": "Terminology"}]}
+    pat = fw.term_pattern(["sarcas"])
+    assert fw.is_core(p, {"Terminology"}, pat)
+    assert not fw.is_core(p, {"Core"}, pat)                       # right terms, wrong label
+    assert not fw.is_core({**p, "title": "Cooking"}, {"Terminology"}, pat)   # right label, wrong terms
+
+
+def test_start_set_can_be_narrowed_to_core_papers():
+    fake = FakeClient(_core_world(), None)
+    srcs = ["snowballing:1", "snowballing:2"]
+    assert sorted(p["id"] for p in fw.start_set(fake, "http://x", 1, srcs)[0]) == [1, 2, 3, 4]
+    by_label = fw.start_set(fake, "http://x", 1, srcs, criteria={"Core"})[0]
+    assert sorted(p["id"] for p in by_label) == [1, 4]
+    by_terms = fw.start_set(fake, "http://x", 1, srcs, terms=["sarcas", "iron", "satir"])[0]
+    assert sorted(p["id"] for p in by_terms) == [1, 2, 4]            # 2 by its abstract; 3 ("environment") is out
+    both = fw.start_set(fake, "http://x", 1, srcs, criteria={"Core"}, terms=["satir"])[0]
+    assert [p["id"] for p in both] == [4]
+
+
+def _run(monkeypatch, tmp_path, argv, world=None):
+    def oa(url, params):
+        if "cites:" in params.get("filter", ""):
+            return {"results": [work("W7", "Citing the core", 2022)], "meta": {"next_cursor": None}}
+        return {"results": [{"id": "https://openalex.org/W100", "doi": "https://doi.org/10.1/1"},
+                            {"id": "https://openalex.org/W104", "doi": "https://doi.org/10.1/4"}]}
+    fake = FakeClient(world or _core_world(), oa)
+    monkeypatch.setattr(fw, "Client", lambda **kw: fake)
+    return fw.main(["--project", "1", "--sources", "snowballing:1,snowballing:2",
+                    "--out", str(tmp_path / "x.bib"), *argv])
+
+
+def test_main_reports_the_filter_and_snowballs_only_from_core(monkeypatch, capsys, tmp_path):
+    assert _run(monkeypatch, tmp_path, ["--criterion", "Core"]) == 0
+    out = capsys.readouterr().out
+    assert "Start set: 2 papers" in out and "criterion Core" in out and "of 4 included from those sources" in out
+
+
+def test_main_says_which_labels_exist_when_the_criterion_matches_nothing(monkeypatch, capsys, tmp_path):
+    assert _run(monkeypatch, tmp_path, ["--criterion", "Cor"]) == 1       # a typo
+    out = capsys.readouterr().out
+    assert "Start set: 0 papers" in out
+    assert "The labels on included papers are: Terminology (2), Core (2)" in out or \
+           "The labels on included papers are: Core (2), Terminology (2)" in out
+
+
+def test_main_with_require_terms(monkeypatch, capsys, tmp_path):
+    assert _run(monkeypatch, tmp_path, ["--require-terms", "satir"]) == 0
+    assert "Start set: 1 papers" in capsys.readouterr().out

@@ -9,6 +9,20 @@ from app.models import SnowballingIteration, Paper, FinalDecision
 router = APIRouter(tags=["snowballing"])
 
 
+@router.get("/projects/{project_id}/snowballing/yield")
+def snowballing_yield(
+    project_id: int,
+    core_terms: str = "",
+    session: Session = Depends(get_session),
+):
+    """Per iteration: how much it brought, and how much of it was already known.
+    ``core_terms`` (comma-separated, matched at the start of a word) adds the
+    share of full-text includes whose title mentions them."""
+    _require_project(project_id, session)
+    from app.services.snowball_service import snowball_yield
+    return snowball_yield(session, project_id, [t for t in core_terms.split(",") if t.strip()])
+
+
 class IterationCreate(BaseModel):
     iteration_type: str = "forward"  # forward, backward
 
