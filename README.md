@@ -70,6 +70,29 @@ editions and chapters can share a title.
 Both only ever offer original records, never ones already flagged as duplicates,
 and at full-text only records screening included.
 
+### Forward snowballing with OpenAlex
+
+ReviQ holds a snowballing iteration but has no citation database, so the
+citing papers of a forward iteration are found elsewhere and imported.
+`backend/tools/openalex_forward.py` does that search against
+[OpenAlex](https://openalex.org) (free; standard library only) and writes the
+BibTeX file the iteration's **Import BibTeX** takes:
+
+```bash
+python3 backend/tools/openalex_forward.py --project 1 \
+    --sources snowballing:1,snowballing:2 --out iteration4.bib
+```
+
+The start set is the papers included at full-text from the sources you name. Each
+is found in OpenAlex by DOI (or by title), and every work citing any of them is
+written out with its abstract, and a note of which start papers it cites. The
+file keeps everything OpenAlex returns, because ReviQ's import flags duplicates
+itself and PRISMA counts them; `--min-year`, `--english-only`,
+`--exclude-types paratext,erratum`, `--skip-retracted` and `--skip-known` narrow
+it if you prefer. `--limit-start 5` makes a quick trial run. Nothing about you is
+sent to OpenAlex unless you pass `--mailto`. The run prints the line to quote in
+a methods section (papers searched, tool, date).
+
 Collaboration is file-based: reviewers export decisions as JSON, and a whole
 grey corpus travels the same way — shared however you like, imported on the
 other end.
@@ -652,6 +675,7 @@ backend/app/
     kappa_service.py   # Cohen's κ, PABAK, Landis-Koch interpretation
     paper_import.py    # The one import loop both BibTeX paths use
     streams.py         # Formal vs grey, search vs snowball — mirrored in the frontend
+  tools/               # Stand-alone helpers: forward snowballing against OpenAlex
   retrieval/           # Creel — the grey-literature retrieval tool: CLI, SERP,
                        #   fetch, WARC archive, extraction, figures, interchange,
                        #   adoption. Knows nothing about reviews; each module's
