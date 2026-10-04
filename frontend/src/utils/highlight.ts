@@ -12,6 +12,8 @@ export interface Highlighters {
   abstract: RegExp | null
   venue: RegExp | null
   languages: Set<string>
+  /** The "known and not English" rule is on: any other language code is a match. */
+  nonEnglish: boolean
   /** The year range the "outside" rule was set with, or null if it is off. */
   years: { min: number; max: number } | null
 }
@@ -35,6 +37,7 @@ export function buildHighlighters(rules: BulkRules): Highlighters {
     abstract: pattern(rules.text_terms, true),
     venue: pattern(rules.venue_terms, false),
     languages: new Set(rules.language_codes.map(c => c.trim().toLowerCase()).filter(Boolean)),
+    nonEnglish: rules.language_non_english,
     years: hasYears
       ? { min: rules.year_min ?? Number.NEGATIVE_INFINITY, max: rules.year_max ?? Number.POSITIVE_INFINITY }
       : null,

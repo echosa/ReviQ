@@ -170,6 +170,23 @@ describe('bulk actions', () => {
     expect(api.applyBulkDecisions.mock.calls[0][1].replace).toBe(false)
   })
 
+  it('sends the non-English option as a single flag and marks any other language', async () => {
+    api.matchUndecided.mockResolvedValue({
+      candidates: 9, matched: 2, offset: 0, limit: 200,
+      papers: [paper(1, { language: 'fr' }), paper(2, { language: 'en' })],
+    })
+    renderIn(<BulkView pid={1} phase="screening" />)
+    fireEvent.click(await screen.findByLabelText('Language is not English'))
+    const preview = screen.getByRole('button', { name: 'Preview matches' })
+    expect(preview).toBeEnabled()                                   // it alone is a rule
+    fireEvent.click(preview)
+    await screen.findByText(/of 9 undecided records match/)
+    expect(api.matchUndecided).toHaveBeenLastCalledWith(1, expect.objectContaining({
+      rules: expect.objectContaining({ language_non_english: true, language_codes: [] }),
+    }))
+    expect([...document.querySelectorAll('mark')].map(m => m.textContent)).toEqual(['fr'])   // not 'en'
+  })
+
   it('cannot preview until a rule is switched on', async () => {
     renderIn(<BulkView pid={1} phase="screening" />)
     const preview = await screen.findByRole('button', { name: 'Preview matches' })

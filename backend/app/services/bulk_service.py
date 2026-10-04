@@ -118,6 +118,8 @@ class MatchRules(BaseModel):
     mode: str = "all"                                   # all | any
     language_codes: list[str] = Field(default_factory=list)   # ISO codes, e.g. "fr"
     language_blank: bool = False
+    # A language was detected and it is not English: every other code at once.
+    language_non_english: bool = False
     title_terms: list[str] = Field(default_factory=list)
     year_min: Optional[int] = None
     year_max: Optional[int] = None    # "year outside [min, max]"; no year never matches
@@ -136,6 +138,9 @@ class MatchRules(BaseModel):
             rules.append(lambda p: (p.language or "").strip().lower() in codes)
         if self.language_blank:
             rules.append(lambda p: not (p.language or "").strip())
+        if self.language_non_english:
+            rules.append(lambda p: bool((p.language or "").strip())
+                         and (p.language or "").strip().lower() != "en")
         terms = [t.strip().lower() for t in self.title_terms if t.strip()]
         if terms:
             rules.append(lambda p: any(t in (p.title or "").lower() for t in terms))

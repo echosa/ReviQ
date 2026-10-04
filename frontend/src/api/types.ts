@@ -416,6 +416,7 @@ export interface BulkRules {
   mode: 'all' | 'any'
   language_codes: string[]
   language_blank: boolean
+  language_non_english: boolean
   title_terms: string[]
   year_min: number | null
   year_max: number | null

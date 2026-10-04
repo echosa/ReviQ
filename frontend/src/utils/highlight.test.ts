@@ -3,7 +3,7 @@ import type { BulkRules } from '../api/types'
 import { buildHighlighters, hasMatch, splitMatches } from './highlight'
 
 const rules = (over: Partial<BulkRules> = {}): BulkRules => ({
-  mode: 'all', language_codes: [], language_blank: false, title_terms: [], year_min: null,
+  mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [], year_min: null,
   year_max: null, venue_terms: [], text_terms: [], text_excludes: [], abstract: null, sources: [],
   ...over,
 })
@@ -60,6 +60,13 @@ describe('buildHighlighters', () => {
     expect([...hl.languages]).toEqual(['fr', 'de'])
     expect(hl.years).toEqual({ min: 2000, max: Number.POSITIVE_INFINITY })
     expect(buildHighlighters(rules()).years).toBeNull()
+  })
+})
+
+describe('non-English rule', () => {
+  it('is remembered for the row, which marks any language but English', () => {
+    expect(buildHighlighters(rules({ language_non_english: true })).nonEnglish).toBe(true)
+    expect(buildHighlighters(rules()).nonEnglish).toBe(false)
   })
 })
 

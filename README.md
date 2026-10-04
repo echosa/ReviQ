@@ -48,7 +48,8 @@ readable.
 
 Screening and Eligibility each have a **Bulk actions** and a **Duplicates** tab.
 
-**Bulk actions** finds the records that match rules (language code, title
+**Bulk actions** finds the records that match rules (language code, or any language
+that is known and not English, title
 keyword, year outside a range, venue keyword, title-or-abstract terms, abstract
 missing or present, optionally limited to some imports), either all of the rules
 or any of them. By default it searches the records you have not decided yet; you

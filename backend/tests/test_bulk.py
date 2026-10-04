@@ -582,3 +582,31 @@ def test_a_pair_with_one_copy_excluded_as_duplicate_is_settled(ctx):
                             params={"reviewer_id": ctx.r1["id"], "hide_settled": True}).json()
     assert body["hidden_settled"] == 1
     assert a5 not in [m["id"] for g in body["groups"] for m in g["papers"]]
+
+
+# ── Non-English language option ───────────────────────────────────────────────
+
+def test_non_english_matches_any_known_language_that_is_not_english(ctx):
+    langs = {"a1": "fr", "a2": "en", "a3": "zh", "a4": "EN", "a5": None, "a6": ""}
+    for key, lang in langs.items():
+        _set(ctx, key, language=lang)
+    got = set(_ids(_match(ctx, {"language_non_english": True})))
+    assert got == {ctx.p["a1"]["id"], ctx.p["a3"]["id"]}            # fr and zh; not en/EN, not unknown
+
+
+def test_non_english_does_not_need_the_codes_listed(ctx):
+    for key, lang in {"a1": "de", "a2": "ar", "a3": "no", "a4": "la"}.items():
+        _set(ctx, key, language=lang)
+    got = set(_ids(_match(ctx, {"language_non_english": True})))
+    assert {ctx.p[k]["id"] for k in ("a1", "a2", "a3", "a4")} <= got
+
+
+def test_non_english_counts_as_a_rule_on_its_own_and_combines_with_the_others(ctx):
+    assert _match(ctx, {"language_non_english": True}).status_code == 200      # not "enable a rule"
+    _set(ctx, "a1", language="fr", year=1990)
+    _set(ctx, "a2", language="fr", year=2020)
+    # "year is outside ... 2000" means after 2000, so only a2 (2020) satisfies both rules.
+    both = _ids(_match(ctx, {"language_non_english": True, "year_max": 2000, "mode": "all"}))
+    assert both == [ctx.p["a2"]["id"]]
+    either = set(_ids(_match(ctx, {"language_non_english": True, "year_max": 2000, "mode": "any"})))
+    assert {ctx.p["a1"]["id"], ctx.p["a2"]["id"]} <= either                  # a1 by language alone

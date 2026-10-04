@@ -89,7 +89,8 @@ type MetaPaper = { year?: number | null; venue?: string | null; source: string; 
 /** Year · venue · source · language, with whatever matched a rule marked. */
 function Meta({ p, hl }: { p: MetaPaper; hl?: Highlighters | null }) {
   const yearHit = !!hl?.years && p.year != null && (p.year < hl.years.min || p.year > hl.years.max)
-  const langHit = !!p.language && !!hl?.languages.has(p.language.toLowerCase())
+  const langHit = !!p.language && (!!hl?.languages.has(p.language.toLowerCase())
+    || (!!hl?.nonEnglish && p.language.toLowerCase() !== 'en'))
   const mark = (text: string | number) => <mark style={MARK_STYLE} className="rounded-sm px-0.5">{text}</mark>
   const parts: JSX.Element[] = []
   if (p.year != null) parts.push(<span key="y">{yearHit ? mark(p.year) : p.year}</span>)
@@ -212,6 +213,11 @@ export function BulkView({ pid, phase }: { pid: number; phase: BulkPhase }) {
               <input type="checkbox" checked={form.languageBlank}
                 onChange={e => set('languageBlank', e.target.checked)} />
               Language is not known
+            </label>
+            <label className="flex items-center gap-2 text-xs text-ink-muted mt-1">
+              <input type="checkbox" aria-label="Language is not English" checked={form.languageNonEnglish}
+                onChange={e => set('languageNonEnglish', e.target.checked)} />
+              Language is known and is not English (any other code)
             </label>
           </FormField>
 

@@ -13,7 +13,7 @@ describe('buildRules', () => {
     expect(ruleCount(EMPTY_FORM)).toBe(0)
     const r = buildRules(EMPTY_FORM)
     expect(r).toMatchObject({
-      mode: 'all', language_codes: [], language_blank: false, title_terms: [],
+      mode: 'all', language_codes: [], language_blank: false, language_non_english: false, title_terms: [],
       year_min: null, year_max: null, venue_terms: [], text_terms: [], text_excludes: [],
       abstract: null, sources: [],
     })
@@ -28,12 +28,21 @@ describe('buildRules', () => {
   })
 })
 
+describe('non-English language rule', () => {
+  it('is sent as its own flag, not as a list of codes', () => {
+    const r = buildRules({ ...EMPTY_FORM, languageNonEnglish: true })
+    expect(r.language_non_english).toBe(true)
+    expect(r.language_codes).toEqual([])
+  })
+})
+
 describe('ruleCount', () => {
   it('counts each switched-on rule once, and not the source scope', () => {
     expect(ruleCount({ ...EMPTY_FORM, sources: ['snowballing:3'] })).toBe(0)
     expect(ruleCount({ ...EMPTY_FORM, yearMin: '2000', yearMax: '2020' })).toBe(1)
     expect(ruleCount({ ...EMPTY_FORM, languageBlank: true, titleTerms: 'editorial', abstract: 'present' })).toBe(3)
     expect(ruleCount({ ...EMPTY_FORM, textTerms: 'irony', textExcludes: 'sentiment' })).toBe(2)
+    expect(ruleCount({ ...EMPTY_FORM, languageNonEnglish: true })).toBe(1)
   })
 })
 
