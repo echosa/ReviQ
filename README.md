@@ -79,10 +79,14 @@ editions and chapters can share a title.
 Both only ever offer original records, never ones already flagged as duplicates,
 and at full-text only records screening included.
 
-### Forward snowballing with OpenAlex
+### Snowballing with OpenAlex (forward and backward)
 
-ReviQ holds a snowballing iteration but has no citation database, so the
-citing papers of a forward iteration are found elsewhere and imported.
+ReviQ holds a snowballing iteration but has no citation database, so what an
+iteration finds is searched elsewhere and imported. A round of snowballing is both
+directions on the same start set: **forward** (the papers that cite the start set,
+the default) and **backward** (`--direction backward`: the papers the start set
+cites, read from OpenAlex's reference lists). Run it twice, once per direction,
+into a Forward and a Backward iteration.
 `backend/tools/openalex_forward.py` does that search against
 [OpenAlex](https://openalex.org) (free; standard library only) and writes the
 BibTeX file the iteration's **Import BibTeX** takes:
@@ -91,6 +95,17 @@ BibTeX file the iteration's **Import BibTeX** takes:
 python3 backend/tools/openalex_forward.py --project 1 \
     --sources snowballing:1,snowballing:2 --out iteration4.bib
 ```
+
+and, for the other half of the same round:
+
+```bash
+python3 backend/tools/openalex_forward.py --project 1 --direction backward \
+    --sources snowballing:1,snowballing:2 --out iteration3.bib
+```
+
+A backward file can be large, because reference lists reach into old and unrelated
+work (and many of the entries are papers you already have, which ReviQ flags as
+duplicates on import). `--min-year` and `--english-only` narrow it.
 
 The start set is the papers included at full-text from the sources you name. Each
 is found in OpenAlex by DOI (or by title), and every work citing any of them is

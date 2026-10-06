@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Forward snowballing from ReviQ's included papers, using OpenAlex.
+"""Snowballing from ReviQ's included papers, using OpenAlex.
 
-ReviQ has no citation database, so a forward iteration (the papers that *cite*
-the ones you included) is found elsewhere and imported. This does that search
-against OpenAlex and writes a BibTeX file for the iteration's "Import BibTeX".
+ReviQ has no citation database, so the papers a snowballing iteration finds are
+searched elsewhere and imported. This does that search against OpenAlex and writes
+a BibTeX file for the iteration's "Import BibTeX":
 
-  1. In ReviQ, create the forward iteration (Snowballing -> New iteration).
+  * forward (the default): the papers that *cite* the ones you included;
+  * backward (--direction backward): the papers the ones you included *cite*,
+    which is to say their reference lists.
+
+A round of snowballing is both directions on the same start set, so run it
+twice, once per direction, into two iterations.
+
+  1. In ReviQ, create the iteration (Snowballing -> New iteration), Forward or
+     Backward to match.
   2. Run this (standard library only; ReviQ must be running):
 
        python3 backend/tools/openalex_forward.py --project 1 \\
@@ -20,7 +28,8 @@ against OpenAlex and writes a BibTeX file for the iteration's "Import BibTeX".
 
 The start set is the papers included at full-text (and at screening) from the
 given sources. Each is looked up in OpenAlex by DOI, or by title when it has no
-DOI; then every work that cites any of them is fetched, with its abstract. The
+DOI; then every work that cites any of them (forward) or that any of them cites
+(backward) is fetched, with its abstract. The
 file keeps everything OpenAlex returns unless you filter, because ReviQ counts
 what was identified and what was a duplicate for PRISMA: its import flags the
 duplicates itself. Filters below are opt-in for that reason.
@@ -58,6 +67,12 @@ def norm_doi(doi: Optional[str]) -> str:
 
 def norm_title(title: Optional[str]) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", "", (title or "").lower())).strip()
+
+
+def search_text(title: str) -> str:
+    """A title as a search string. OpenAlex reads * and ? as wildcards and refuses
+    the query, so a title like "Does Sarcasm Always Sting? ..." has to lose them."""
+    return re.sub(r"\s+", " ", re.sub(r"[*?]", " ", title or "")).strip()
 
 
 def short_id(openalex_id: str) -> str:
@@ -103,7 +118,7 @@ def surname(display_name: str) -> str:
     return re.sub(r"[^A-Za-z]", "", parts[-1]) if parts else ""
 
 
-def bibtex_entry(work: dict, cites: Iterable[str] = ()) -> str:
+def bibtex_entry(work: dict, cites: Iterable[str] = (), relation: str = "cites") -> str:
     """One BibTeX entry in the shape ReviQ's importer reads: a unique citekey, a
     title, ' and '-separated authors, and the venue in the field its entry type
     uses (booktitle for a conference, journal for everything else)."""
@@ -128,7 +143,9 @@ def bibtex_entry(work: dict, cites: Iterable[str] = ()) -> str:
     if abstract:
         fields.append(("abstract", abstract))
     cited = sorted(set(cites))
-    note = f"OpenAlex {wid}" + (f"; cites {', '.join(cited)}" if cited else "")
+    # "cites W1": this work cites those start papers (forward);
+    # "cited by W1": those start papers cite this work (backward).
+    note = f"OpenAlex {wid}" + (f"; {relation} {', '.join(cited)}" if cited else "")
     fields.append(("note", note))
     body = ",\n".join(f"  {k} = {{{v}}}" for k, v in fields)
     return f"@{'inproceedings' if conference else 'article'}{{{key},\n{body}\n}}\n"
@@ -141,7 +158,10 @@ class Client:
                  pause: float = 0.12, log=print):
         self.mailto, self.api_key, self.pause, self.log = mailto, api_key, pause, log
 
-    def get(self, url: str, params: Optional[dict] = None, retries: int = 5) -> dict:
+    def get(self, url: str, params: Optional[dict] = None, retries: int = 5, soft: bool = False) -> dict:
+        """GET and decode. With ``soft``, a request OpenAlex rejects as malformed
+        (a 4xx) gives an empty answer instead of ending the run: right for one
+        title lookup among hundreds, wrong for anything the run depends on."""
         params = dict(params or {})
         if self.mailto:
             params["mailto"] = self.mailto
@@ -160,7 +180,11 @@ class Client:
                     self.log(f"  ... {e.code} from {urllib.parse.urlparse(url).netloc}, retrying in {wait}s")
                     time.sleep(wait)
                     continue
-                raise SystemExit(f"{e.code} from {url}: {e.read()[:300].decode('utf-8', 'replace')}")
+                body = e.read()[:300].decode("utf-8", "replace")
+                if soft and 400 <= e.code < 500:
+                    self.log(f"  ... skipped a lookup OpenAlex refused ({e.code}): {body[:120]}")
+                    return {}
+                raise SystemExit(f"{e.code} from {url}: {body}")
         raise SystemExit(f"Giving up on {url}")
 
 
@@ -237,7 +261,7 @@ def resolve(client: Client, start: list[dict]) -> tuple[dict[int, str], list[dic
         hit = None
         for q in queries:
             data = client.get(f"{OPENALEX}/works", {
-                "search": q, "per_page": 5, "select": "id,title,publication_year"})
+                "search": search_text(q), "per_page": 5, "select": "id,title,publication_year"}, soft=True)
             for w in data.get("results", []):
                 near = abs((w.get("publication_year") or 0) - (p.get("year") or 0)) <= 1
                 if near and any(title_matches(w.get("title") or "", t) for t in queries):
@@ -266,6 +290,34 @@ def citing_works(client: Client, openalex_ids: list[str], log=print) -> dict[str
                 works.setdefault(short_id(w["id"]), w)
             cursor = (data.get("meta") or {}).get("next_cursor")
             log(f"  ids {i + 1}-{i + len(chunk)}: {len(works)} citing works so far")
+    return works
+
+
+def referenced_works_of(client: Client, openalex_ids: list[str]) -> dict[str, list[str]]:
+    """For each OpenAlex id, the ids of the works it cites (its reference list)."""
+    out: dict[str, list[str]] = {}
+    for i in range(0, len(openalex_ids), BATCH):
+        chunk = openalex_ids[i:i + BATCH]
+        data = client.get(f"{OPENALEX}/works", {
+            "filter": "openalex:" + "|".join(chunk), "per_page": 100,
+            "select": "id,referenced_works"})
+        for w in data.get("results", []):
+            out[short_id(w["id"])] = [short_id(r) for r in w.get("referenced_works", []) if r]
+    return out
+
+
+def fetch_works(client: Client, openalex_ids: list[str], log=print) -> dict[str, dict]:
+    """The works behind a list of ids, with the fields a BibTeX entry needs."""
+    works: dict[str, dict] = {}
+    for i in range(0, len(openalex_ids), BATCH):
+        chunk = openalex_ids[i:i + BATCH]
+        data = client.get(f"{OPENALEX}/works", {
+            "filter": "openalex:" + "|".join(chunk), "per_page": 100, "select": SELECT})
+        for w in data.get("results", []):
+            works.setdefault(short_id(w["id"]), w)
+        done = min(i + BATCH, len(openalex_ids))
+        if done % 500 < BATCH or done == len(openalex_ids):
+            log(f"  fetched {done} of {len(openalex_ids)} referenced works")
     return works
 
 
@@ -301,6 +353,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--require-terms",
                     help="only snowball from papers whose title or abstract mention one of these terms "
                          "(comma-separated, matched at the start of a word), e.g. sarcas,iron,satir")
+    ap.add_argument("--direction", choices=("forward", "backward"), default="forward",
+                    help="forward: papers that cite the start set (default); "
+                         "backward: papers the start set cites (its reference lists)")
     ap.add_argument("--out", required=True, help="BibTeX file to write")
     ap.add_argument("--reviq", default=REVIQ_DEFAULT, help=f"ReviQ URL (default {REVIQ_DEFAULT})")
     ap.add_argument("--mailto", help="optional e-mail for OpenAlex's polite pool (never sent unless given)")
@@ -343,8 +398,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"   not found: id {p['id']} {p['year']} {p['title'][:70]}")
 
     ids = sorted(set(found.values()))
-    works = citing_works(client, ids)
     start_ids = set(ids)
+    backward = args.direction == "backward"
+    # For each work found: which start papers it is linked to.
+    linked: dict[str, set[str]] = {}
+    if backward:
+        references = referenced_works_of(client, ids)
+        for start_id, refs in references.items():
+            for r in refs:
+                linked.setdefault(r, set()).add(start_id)
+        print(f"Reference lists read: {len(references)} papers cite {len(linked)} distinct works")
+        works = fetch_works(client, sorted(linked))
+    else:
+        works = citing_works(client, ids)
     kept = [w for w in works.values() if keep(
         w, min_year=args.min_year, english_only=args.english_only,
         exclude_types={t for t in args.exclude_types.split(",") if t},
@@ -354,15 +420,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     with open(args.out, "w", encoding="utf-8") as f:
         for w in kept:
-            cites = [short_id(r) for r in w.get("referenced_works", []) if short_id(r) in start_ids]
-            f.write(bibtex_entry(w, cites) + "\n")
+            if backward:
+                f.write(bibtex_entry(w, linked.get(short_id(w["id"]), ()), relation="cited by") + "\n")
+            else:
+                cites = [short_id(r) for r in w.get("referenced_works", []) if short_id(r) in start_ids]
+                f.write(bibtex_entry(w, cites) + "\n")
 
     with_abs = sum(1 for w in kept if w.get("abstract_inverted_index"))
-    print(f"\nCiting works found: {len(works)} | written: {len(kept)} to {args.out}")
+    print(f"\n{'Referenced' if backward else 'Citing'} works found: {len(works)} | written: {len(kept)} to {args.out}")
     print(f"  with an abstract: {with_abs} ({100 * with_abs // max(len(kept), 1)}%)")
     print(f"  already in the project (by DOI or title): "
           f"{sum(1 for w in works.values() if norm_doi(w.get('doi')) in known_dois or norm_title(w.get('title')) in known_titles)}")
-    print(f"\nFor your methods: forward search of {len(found)} papers, OpenAlex, run "
+    print(f"\nFor your methods: {args.direction} search of {len(found)} papers, OpenAlex, run "
           f"{datetime.date.today().isoformat()}.")
     return 0
 

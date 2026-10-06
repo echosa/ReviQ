@@ -138,7 +138,7 @@ class FakeClient:
     def __init__(self, reviq, openalex):
         self.reviq, self.openalex, self.calls = reviq, openalex, []
 
-    def get(self, url, params=None, retries=5):
+    def get(self, url, params=None, retries=5, soft=False):
         self.calls.append((url, params))
         if "/api/projects/" in url:
             for needle, data in self.reviq.items():
@@ -310,3 +310,152 @@ def test_main_says_which_labels_exist_when_the_criterion_matches_nothing(monkeyp
 def test_main_with_require_terms(monkeypatch, capsys, tmp_path):
     assert _run(monkeypatch, tmp_path, ["--require-terms", "satir"]) == 0
     assert "Start set: 1 papers" in capsys.readouterr().out
+
+
+# ── backward: the papers the start set cites ──────────────────────────────────
+
+def test_bibtex_note_says_which_way_the_link_runs():
+    w = work("W9", "A work", 2020)
+    assert "OpenAlex W9; cites W1, W2" in fw.bibtex_entry(w, ["W2", "W1"])                      # forward
+    assert "OpenAlex W9; cited by W1, W2" in fw.bibtex_entry(w, ["W2", "W1"], relation="cited by")   # backward
+    assert fw.bibtex_entry(w).count("cites") == 0                                              # nothing to say, nothing said
+
+
+def test_reference_lists_are_read_in_batches_and_reduced_to_ids():
+    seen = []
+
+    def oa(url, params):
+        ids = params["filter"].removeprefix("openalex:").split("|")
+        seen.append(len(ids))
+        assert params["select"] == "id,referenced_works"
+        return {"results": [{"id": f"https://openalex.org/{i}",
+                             "referenced_works": [f"https://openalex.org/R{i}", None]} for i in ids]}
+    ids = [f"W{n}" for n in range(120)]
+    out = fw.referenced_works_of(FakeClient({}, oa), ids)
+    assert seen == [50, 50, 20]                                       # BATCH at a time
+    assert out["W7"] == ["RW7"]                                       # short ids; the null reference is dropped
+    assert len(out) == 120
+
+
+def test_referenced_works_are_fetched_in_batches_without_duplicates():
+    calls = []
+
+    def oa(url, params):
+        ids = params["filter"].removeprefix("openalex:").split("|")
+        calls.append(ids)
+        return {"results": [work(i, f"Title {i}", 2000) for i in ids] + [work(ids[0], "again", 2000)]}
+    out = fw.fetch_works(FakeClient({}, oa), [f"W{n}" for n in range(75)], log=lambda *_: None)
+    assert [len(c) for c in calls] == [50, 25]
+    assert len(out) == 75 and out["W0"]["title"] == "Title W0"        # the repeat did not replace the first
+
+
+def _backward_oa(url, params):
+    f = params.get("filter", "")
+    if f.startswith("doi:"):
+        return {"results": [{"id": "https://openalex.org/W100", "doi": "https://doi.org/10.1/1"},
+                            {"id": "https://openalex.org/W104", "doi": "https://doi.org/10.1/4"}]}
+    if params.get("select") == "id,referenced_works":
+        return {"results": [
+            {"id": "https://openalex.org/W100", "referenced_works": ["https://openalex.org/W500", "https://openalex.org/W501"]},
+            {"id": "https://openalex.org/W104", "referenced_works": ["https://openalex.org/W501", "https://openalex.org/W502"]}]}
+    if f.startswith("openalex:"):
+        wanted = f.removeprefix("openalex:").split("|")
+        data = {"W500": work("W500", "Old paper one", 1999, abstract="About irony.", doi="10.9/o1"),
+                "W501": work("W501", "Old paper two", 2005, authors=("Grace Hopper",), venue="Ancient Journal"),
+                "W502": work("W502", "", 2010)}                    # no title: unusable
+        return {"results": [data[i] for i in wanted if i in data]}
+    raise AssertionError(f"unexpected call {url} {params}")
+
+
+def _run_backward(monkeypatch, tmp_path, argv=()):
+    fake = FakeClient(_core_world(), _backward_oa)
+    monkeypatch.setattr(fw, "Client", lambda **kw: fake)
+    out = tmp_path / "back.bib"
+    code = fw.main(["--project", "1", "--sources", "snowballing:1,snowballing:2", "--criterion", "Core",
+                    "--direction", "backward", "--out", str(out), *argv])
+    return code, out, fake
+
+
+def test_backward_writes_the_reference_lists_as_a_file_reviq_can_read(monkeypatch, tmp_path, capsys):
+    code, out, _ = _run_backward(monkeypatch, tmp_path)
+    assert code == 0
+    papers = parse(out.read_text())
+    assert [p["title"] for p in papers] == ["Old paper one", "Old paper two"]        # the untitled one is dropped
+    assert len({p["citekey"] for p in papers}) == 2
+    assert papers[0]["abstract"] == "About irony." and papers[1]["venue"] == "Ancient Journal"
+    text = out.read_text()
+    assert "OpenAlex W500; cited by W100" in text
+    assert "OpenAlex W501; cited by W100, W104" in text                              # cited by both start papers
+    report = capsys.readouterr().out
+    assert "Reference lists read: 2 papers cite 3 distinct works" in report
+    assert "Referenced works found: 3 | written: 2" in report
+    assert "backward search of 2 papers" in report
+
+
+def test_backward_uses_the_same_filters_as_forward(monkeypatch, tmp_path):
+    code, out, _ = _run_backward(monkeypatch, tmp_path, ["--min-year", "2000"])
+    assert code == 0 and [p["title"] for p in parse(out.read_text())] == ["Old paper two"]   # W500 is from 1999
+
+
+def test_forward_is_still_the_default(monkeypatch, tmp_path, capsys):
+    assert _run(monkeypatch, tmp_path, ["--criterion", "Core"]) == 0
+    out = capsys.readouterr().out
+    assert "Citing works found" in out and "forward search of" in out and "Referenced" not in out
+
+
+def test_a_start_paper_with_no_references_does_not_break_backward(monkeypatch, tmp_path):
+    def oa(url, params):
+        if params.get("select") == "id,referenced_works":
+            return {"results": [{"id": "https://openalex.org/W100", "referenced_works": []},
+                                {"id": "https://openalex.org/W104"}]}                # no list at all
+        return _backward_oa(url, params)
+    fake = FakeClient(_core_world(), oa)
+    monkeypatch.setattr(fw, "Client", lambda **kw: fake)
+    out = tmp_path / "b.bib"
+    assert fw.main(["--project", "1", "--sources", "snowballing:1,snowballing:2", "--criterion", "Core",
+                    "--direction", "backward", "--out", str(out)]) == 0
+    assert out.read_text().strip() == ""
+
+
+# ── a title OpenAlex would refuse ─────────────────────────────────────────────
+
+def test_search_text_drops_the_wildcards_openalex_refuses():
+    assert fw.search_text("Does Sarcasm Always Sting? Investigating the Impact") == \
+        "Does Sarcasm Always Sting Investigating the Impact"
+    assert fw.search_text("Irony* and  humour?") == "Irony and humour"
+    assert fw.search_text("") == ""
+
+
+def test_a_title_with_a_question_mark_is_searched_without_it_and_still_found():
+    seen = []
+
+    def oa(url, params):
+        seen.append(params["search"])
+        return {"results": [{"id": "https://openalex.org/W300", "title": "Does Sarcasm Always Sting? Investigating the Impact",
+                             "publication_year": 2002}]}
+    start = [{"id": 1, "title": "Does Sarcasm Always Sting? Investigating the Impact", "doi": None, "year": 2002}]
+    found, missing = fw.resolve(FakeClient({}, oa), start)
+    assert found == {1: "W300"} and missing == []
+    assert "?" not in seen[0]
+
+
+def test_a_lookup_openalex_refuses_leaves_that_paper_unresolved_instead_of_ending_the_run():
+    import io
+    import urllib.error
+
+    calls = []
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(req.full_url)
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(b'{"error":"bad"}'))
+    c = fw.Client(log=lambda *_: None)
+    import urllib.request as ur
+    orig = ur.urlopen
+    ur.urlopen = fake_urlopen
+    try:
+        assert c.get("https://api.openalex.org/works", {"search": "x"}, soft=True) == {}      # skipped
+        with pytest.raises(SystemExit):                                                      # but not when the run depends on it
+            c.get("https://api.openalex.org/works", {"search": "x"})
+    finally:
+        ur.urlopen = orig
+    assert len(calls) == 2
